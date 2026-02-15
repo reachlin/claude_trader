@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+*.csv
+.env
+.claude/
+tuning_results.json

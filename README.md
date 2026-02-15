@@ -1,0 +1,164 @@
+# Claude Trader
+
+Trading signal bots for China A-shares (601933 Yonghui Superstores). Two approaches — unsupervised K-Means clustering and supervised LSTM — generate daily signals (strong\_buy, mild\_buy, hold, mild\_sell, strong\_sell) from technical indicators, then simulate trades with realistic A-share constraints (T+1, 100-share lots, commissions, stamp tax).
+
+A hyperparameter tuning pipeline finds optimal configs via grid search with chronological inner validation.
+
+## Project Structure
+
+```
+claude_trader/
+├── fetch_china_stock.py        # Download daily OHLCV from akshare
+├── trading_bot.py              # K-Means clustering bot + backtest engine
+├── dnn_trading_bot.py          # LSTM neural network bot + backtest engine
+├── tune_hyperparams.py         # Grid search hyperparameter tuning
+├── test_fetch_china_stock.py   # Tests for data fetcher
+├── test_trading_bot.py         # Tests for K-Means bot (35 tests)
+├── test_dnn_trading_bot.py     # Tests for LSTM bot (18 tests)
+├── test_tune_hyperparams.py    # Tests for tuning pipeline (22 tests)
+├── 601933_10yr.csv             # 10-year price data (2016–2025, ~2400 rows)
+├── 601933_3yr.csv              # 3-year price data (legacy)
+├── tuning_results.json         # Saved tuning output
+└── CLAUDE.md                   # AI assistant instructions
+```
+
+## Setup
+
+### 1. Create conda environment
+
+```bash
+conda create -n trader python=3.12 -y
+conda activate trader
+```
+
+### 2. Install dependencies
+
+```bash
+pip install akshare pandas numpy scikit-learn torch pytest
+```
+
+Required packages:
+
+| Package      | Purpose                          |
+|--------------|----------------------------------|
+| akshare      | China A-share market data API    |
+| pandas       | Data manipulation                |
+| numpy        | Numerical computation            |
+| scikit-learn | K-Means clustering, scaling      |
+| torch        | LSTM neural network (PyTorch)    |
+| pytest       | Test runner                      |
+
+### 3. Fetch stock data
+
+```bash
+conda activate trader
+python fetch_china_stock.py 601933 --start 20160101 --end 20251231 --csv 601933_10yr.csv
+```
+
+The 10yr CSV is already included in the repo. To fetch a different stock or date range:
+
+```bash
+python fetch_china_stock.py <SYMBOL> --start YYYYMMDD --end YYYYMMDD --csv output.csv
+```
+
+## Usage
+
+### Run tests
+
+```bash
+conda activate trader
+pytest test_trading_bot.py test_dnn_trading_bot.py test_tune_hyperparams.py -v
+```
+
+75 tests total — all should pass.
+
+### Run K-Means trading bot
+
+```bash
+python trading_bot.py                          # uses 601933_10yr.csv
+python trading_bot.py --csv 601933_3yr.csv     # use a different file
+```
+
+Outputs cluster analysis, backtest metrics, recent trades, and today's signal.
+
+### Run LSTM trading bot
+
+```bash
+python dnn_trading_bot.py                      # uses 601933_10yr.csv
+python dnn_trading_bot.py --csv 601933_3yr.csv
+```
+
+Trains the LSTM, runs backtest, prints a comparison table vs K-Means baseline, and today's signal.
+
+### Run hyperparameter tuning
+
+```bash
+python tune_hyperparams.py                     # full tuning, ~3 min
+python tune_hyperparams.py --csv 601933_10yr.csv --output tuning_results.json
+```
+
+This runs:
+1. **K-Means grid search** (30 configs) — varies `n_clusters` [3–8] and feature subsets
+2. **LSTM 2-phase grid search** (~40 configs) — Phase 1 varies window/lr/batch, Phase 2 varies hidden sizes
+3. **Final evaluation** — retrains best configs on full training set, tests on held-out 40%
+
+Results are printed as a comparison table and saved to `tuning_results.json`.
+
+## How It Works
+
+### Technical Indicators (6 features)
+
+| Indicator   | Description                       |
+|-------------|-----------------------------------|
+| RSI(14)     | Relative Strength Index           |
+| MACD Hist   | MACD histogram (12, 26, 9)        |
+| Boll %B(20) | Bollinger Band percent position   |
+| Vol Ratio   | Volume / 20-day average volume    |
+| ROC(10)     | 10-day rate of change             |
+| ATR Ratio   | ATR(14) / close (norm. volatility)|
+
+### K-Means Bot
+
+1. Compute indicators on training data
+2. Fit K-Means (configurable clusters) on scaled features
+3. Rank clusters by average next-day forward return
+4. Map clusters to signal levels (strong\_sell → strong\_buy)
+5. On test data: predict cluster → signal → execute trade at next day's open
+
+### LSTM Bot
+
+1. Build sliding windows of indicator sequences
+2. Label windows by forward return percentile (5-class)
+3. Train LSTM(hidden1) → LSTM(hidden2) → FC(16) → FC(5) with early stopping
+4. Predict class → signal → execute trade at next day's open
+
+### Backtest Rules
+
+- **Walk-forward**: train on first 60%, test on remaining 40%
+- **Execution**: signals generated at close, executed at next day's open
+- **T+1 settlement**: cannot sell shares bought on the same day
+- **Lot size**: all trades rounded to 100-share lots
+- **Costs**: 0.025% commission (min 5 RMB) + 0.05% stamp tax on sells
+
+### Tuning Methodology
+
+- **Outer split**: 60% train / 40% test (test untouched during tuning)
+- **Inner split**: 75% train / 25% validation within the 60% (chronological, no leakage)
+- **Ranking metric**: Sharpe ratio on inner validation set
+- **Final eval**: retrain best params on full 60%, evaluate on 40%
+
+## Results (601933, 10yr data)
+
+| Metric       | KM Original | KM Tuned    | LSTM Original | LSTM Tuned | Buy & Hold |
+|--------------|-------------|-------------|---------------|------------|------------|
+| Total Return | +38.60%     | **+111.22%**| +8.93%        | -7.25%     | +10.86%    |
+| Sharpe Ratio | 0.433       | **0.824**   | 0.250         | 0.184      | —          |
+| Max Drawdown | -39.89%     | **-33.04%** | -58.28%       | -59.40%    | —          |
+| Win Rate     | 46.5%       | **64.9%**   | 53.3%         | 50.0%      | —          |
+| Num Trades   | 412         | 223         | 55            | 5          | 1          |
+
+**Best K-Means params**: `n_clusters=5, features=drop_vol` (dropping volume ratio)
+
+**Best LSTM params**: `window_size=10, lr=0.0001, batch_size=64, hidden1=64, hidden2=32`
+
+The tuned K-Means bot is the clear winner — 10x Buy & Hold return with a higher Sharpe ratio and lower drawdown. The LSTM underperforms, suggesting the classification-based approach doesn't capture useful temporal patterns in this dataset.
