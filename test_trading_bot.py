@@ -45,7 +45,7 @@ class TestIndicators:
     def test_returns_expected_columns(self):
         df = make_ohlcv(100)
         result = compute_indicators(df)
-        expected = {"rsi", "macd_hist", "boll_pctb", "vol_ratio", "roc", "atr_ratio"}
+        expected = {"rsi", "macd_hist", "boll_pctb", "vol_ratio", "roc", "atr_ratio", "sma5"}
         assert expected.issubset(set(result.columns))
 
     def test_no_nan_after_warmup(self):
@@ -69,6 +69,25 @@ class TestIndicators:
         df = make_ohlcv(200)
         result = compute_indicators(df).dropna(subset=["vol_ratio"])
         assert (result["vol_ratio"] > 0).all()
+
+    def test_sma5_computed(self):
+        """SMA5 column should exist and have no NaN after warmup."""
+        df = make_ohlcv(200)
+        result = compute_indicators(df).dropna(subset=["sma5"])
+        assert len(result) > 0
+        assert result["sma5"].isna().sum() == 0
+
+    def test_sma5_is_5day_average(self):
+        """SMA5 should equal the rolling 5-day mean of close."""
+        df = make_ohlcv(50)
+        result = compute_indicators(df)
+        manual_sma5 = result["close"].rolling(5).mean()
+        valid = result.dropna(subset=["sma5"])
+        pd.testing.assert_series_equal(
+            valid["sma5"].reset_index(drop=True),
+            manual_sma5.dropna().reset_index(drop=True),
+            check_names=False,
+        )
 
 
 # ===========================================================================
@@ -276,3 +295,29 @@ class TestFeatureCols:
         """Default should still be the original 6 features."""
         bot = TradingBot()
         assert bot.feature_cols == FEATURE_COLS
+
+
+# ===========================================================================
+# 7. SMA5 buy filter tests
+# ===========================================================================
+class TestSMA5BuyFilter:
+    """Buys should only occur when close < SMA5."""
+
+    def test_buy_trades_below_sma5(self):
+        """All buy trades in backtest must have been signaled when close < sma5."""
+        df = make_ohlcv(500, seed=99)
+        results = run_backtest(df, train_ratio=0.6)
+        test_df = results["test_df"]
+        trades = results["trades"]
+        buy_trades = [t for t in trades if t["action"] == "buy"]
+        for bt in buy_trades:
+            # Find the signal day: the day before the trade execution date
+            exec_date = bt["date"]
+            exec_idx = test_df[test_df["date"].astype(str) == exec_date].index
+            if len(exec_idx) > 0 and exec_idx[0] > 0:
+                signal_idx = exec_idx[0] - 1
+                close = test_df.loc[signal_idx, "close"]
+                sma5 = test_df.loc[signal_idx, "sma5"]
+                assert close < sma5, (
+                    f"Buy on {exec_date}: signal day close={close:.2f} >= sma5={sma5:.2f}"
+                )

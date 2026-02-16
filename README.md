@@ -1,6 +1,6 @@
 # Claude Trader
 
-Trading signal bots for China A-shares (601933 Yonghui Superstores). Two approaches — unsupervised K-Means clustering and supervised LSTM — generate daily signals (strong\_buy, mild\_buy, hold, mild\_sell, strong\_sell) from technical indicators, then simulate trades with realistic A-share constraints (T+1, 100-share lots, commissions, stamp tax).
+Trading signal bots for China A-shares (601933 Yonghui Superstores). Three approaches — unsupervised K-Means clustering, supervised LSTM, and LightGBM gradient-boosted trees — generate daily signals (strong\_buy, mild\_buy, hold, mild\_sell, strong\_sell) from technical indicators, then simulate trades with realistic A-share constraints (T+1, 100-share lots, commissions, stamp tax).
 
 A hyperparameter tuning pipeline finds optimal configs via grid search with chronological inner validation.
 
@@ -11,11 +11,14 @@ claude_trader/
 ├── fetch_china_stock.py        # Download daily OHLCV from akshare
 ├── trading_bot.py              # K-Means clustering bot + backtest engine
 ├── dnn_trading_bot.py          # LSTM neural network bot + backtest engine
-├── tune_hyperparams.py         # Grid search hyperparameter tuning
+├── lgbm_trading_bot.py         # LightGBM gradient-boosted tree bot + backtest
+├── compare_models.py           # 3-model comparison + combined trade log
+├── tune_hyperparams.py         # Grid search hyperparameter tuning (all 3 models)
 ├── test_fetch_china_stock.py   # Tests for data fetcher
-├── test_trading_bot.py         # Tests for K-Means bot (35 tests)
+├── test_trading_bot.py         # Tests for K-Means bot (37 tests)
 ├── test_dnn_trading_bot.py     # Tests for LSTM bot (18 tests)
-├── test_tune_hyperparams.py    # Tests for tuning pipeline (22 tests)
+├── test_lgbm_trading_bot.py    # Tests for LightGBM bot (12 tests)
+├── test_tune_hyperparams.py    # Tests for tuning pipeline (24 tests)
 ├── 601933_10yr.csv             # 10-year price data (2016–2025, ~2400 rows)
 ├── 601933_3yr.csv              # 3-year price data (legacy)
 ├── tuning_results.json         # Saved tuning output
@@ -34,7 +37,7 @@ conda activate trader
 ### 2. Install dependencies
 
 ```bash
-pip install akshare pandas numpy scikit-learn torch pytest
+pip install akshare pandas numpy scikit-learn torch lightgbm pytest
 ```
 
 Required packages:
@@ -46,6 +49,7 @@ Required packages:
 | numpy        | Numerical computation            |
 | scikit-learn | K-Means clustering, scaling      |
 | torch        | LSTM neural network (PyTorch)    |
+| lightgbm     | Gradient-boosted tree classifier |
 | pytest       | Test runner                      |
 
 ### 3. Fetch stock data
@@ -67,10 +71,10 @@ python fetch_china_stock.py <SYMBOL> --start YYYYMMDD --end YYYYMMDD --csv outpu
 
 ```bash
 conda activate trader
-pytest test_trading_bot.py test_dnn_trading_bot.py test_tune_hyperparams.py -v
+pytest test_trading_bot.py test_dnn_trading_bot.py test_lgbm_trading_bot.py test_tune_hyperparams.py -v
 ```
 
-75 tests total — all should pass.
+80 tests total — all should pass.
 
 ### Run K-Means trading bot
 
@@ -90,6 +94,23 @@ python dnn_trading_bot.py --csv 601933_3yr.csv
 
 Trains the LSTM, runs backtest, prints a comparison table vs K-Means baseline, and today's signal.
 
+### Run LightGBM trading bot
+
+```bash
+python lgbm_trading_bot.py                     # uses 601933_10yr.csv
+python lgbm_trading_bot.py --csv 601933_3yr.csv
+```
+
+Trains a LightGBM classifier, runs backtest, prints feature importance, comparison vs K-Means, and today's signal.
+
+### Compare all models
+
+```bash
+python compare_models.py                       # 3-model comparison + trade_log.csv
+```
+
+Runs all three backtests, prints a side-by-side comparison table, and saves a combined daily trade log with signals and actions for each model.
+
 ### Run hyperparameter tuning
 
 ```bash
@@ -100,7 +121,8 @@ python tune_hyperparams.py --csv 601933_10yr.csv --output tuning_results.json
 This runs:
 1. **K-Means grid search** (30 configs) — varies `n_clusters` [3–8] and feature subsets
 2. **LSTM 2-phase grid search** (~40 configs) — Phase 1 varies window/lr/batch, Phase 2 varies hidden sizes
-3. **Final evaluation** — retrains best configs on full training set, tests on held-out 40%
+3. **LightGBM grid search** (27 configs) — varies `n_estimators`, `max_depth`, `learning_rate`
+4. **Final evaluation** — retrains best configs on full training set, tests on held-out 40%
 
 Results are printed as a comparison table and saved to `tuning_results.json`.
 
@@ -132,6 +154,15 @@ Results are printed as a comparison table and saved to `tuning_results.json`.
 3. Train LSTM(hidden1) → LSTM(hidden2) → FC(16) → FC(5) with early stopping
 4. Predict class → signal → execute trade at next day's open
 
+### LightGBM Bot
+
+1. Compute indicators — each row is an independent sample (no sliding windows)
+2. Label by forward 1-day return percentile (same 5-class scheme as LSTM)
+3. Train LGBMClassifier on scaled features
+4. Predict class → signal → execute trade at next day's open
+
+Key advantage over LSTM: trains in seconds (vs minutes), works well with small tabular datasets, and provides feature importance rankings.
+
 ### Backtest Rules
 
 - **Walk-forward**: train on first 60%, test on remaining 40%
@@ -149,16 +180,24 @@ Results are printed as a comparison table and saved to `tuning_results.json`.
 
 ## Results (601933, 10yr data)
 
-| Metric       | KM Original | KM Tuned    | LSTM Original | LSTM Tuned | Buy & Hold |
-|--------------|-------------|-------------|---------------|------------|------------|
-| Total Return | +38.60%     | **+111.22%**| +8.93%        | -7.25%     | +10.86%    |
-| Sharpe Ratio | 0.433       | **0.824**   | 0.250         | 0.184      | —          |
-| Max Drawdown | -39.89%     | **-33.04%** | -58.28%       | -59.40%    | —          |
-| Win Rate     | 46.5%       | **64.9%**   | 53.3%         | 50.0%      | —          |
-| Num Trades   | 412         | 223         | 55            | 5          | 1          |
+| Metric       | KM Original | KM Tuned | LSTM Original | LSTM Tuned | LGBM Original | LGBM Tuned | Buy & Hold |
+|--------------|-------------|----------|---------------|------------|---------------|------------|------------|
+| Total Return | **+44.25%** | +0.62%   | +0.00%        | +2.90%     | +23.67%       | -7.06%     | +10.86%    |
+| Sharpe Ratio | **0.478**   | 0.154    | 0.000         | 0.121      | 0.352         | 0.019      | —          |
+| Max Drawdown | -37.51%     | -42.27%  | 0.00%         | -15.19%    | **-25.71%**   | -30.30%    | —          |
+| Win Rate     | 47.9%       | 47.8%    | 0.0%          | 50.0%      | 54.8%         | **59.5%**  | —          |
+| Num Trades   | 216         | 246      | 0             | 86         | 380           | 363        | 1          |
 
-**Best K-Means params**: `n_clusters=5, features=drop_vol` (dropping volume ratio)
+**Best K-Means params**: `n_clusters=8, features=drop_roc`
 
-**Best LSTM params**: `window_size=10, lr=0.0001, batch_size=64, hidden1=64, hidden2=32`
+**Best LSTM params**: `window_size=10, lr=0.001, batch_size=16, hidden1=64, hidden2=32`
 
-The tuned K-Means bot is the clear winner — 10x Buy & Hold return with a higher Sharpe ratio and lower drawdown. The LSTM underperforms, suggesting the classification-based approach doesn't capture useful temporal patterns in this dataset.
+**Best LightGBM params**: `n_estimators=50, max_depth=7, learning_rate=0.1`
+
+### Analysis
+
+- **K-Means (default)** is the clear winner with +44.25% return and the highest Sharpe ratio (0.478). It outperforms Buy & Hold by 4x.
+- **LightGBM (default)** comes second at +23.67%, more than doubling Buy & Hold. It has the best drawdown control (-25.71%) and highest win rate (54.8%), making it the most conservative profitable strategy.
+- **LSTM** struggles on this dataset, producing near-zero returns in most configurations.
+- **Tuning hurt both LightGBM and K-Means** on the test set — all LightGBM configs had negative Sharpe on the inner validation set, indicating overfitting to the training period. The default hyperparameters remain the best choice for both.
+- **Feature importance** (LightGBM): ATR ratio and MACD histogram are the most important features, followed by volume ratio and ROC.

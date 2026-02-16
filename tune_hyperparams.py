@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Hyperparameter tuning for K-Means and LSTM trading bots.
+"""Hyperparameter tuning for K-Means, LSTM, and LightGBM trading bots.
 
 Grid search with inner chronological validation split.
 Outer split: 60% train / 40% test (untouched during tuning).
@@ -49,6 +49,12 @@ LSTM_PHASE2_GRID = {
     "hidden2": [16, 32],
 }
 
+LGBM_GRID = {
+    "n_estimators": [50, 100, 200],
+    "max_depth": [3, 5, 7],
+    "learning_rate": [0.01, 0.05, 0.1],
+}
+
 
 # ---------------------------------------------------------------------------
 # Inner split helper
@@ -82,10 +88,11 @@ def _eval_kmeans(train_df, val_df, n_clusters, feature_cols, initial_capital=100
         signal = val_df.iloc[i]["signal"]
         exec_price = val_df.iloc[i + 1]["open"]
         trade_date = str(val_df.iloc[i + 1]["date"])
+        price_below_sma5 = val_df.iloc[i]["close"] < val_df.iloc[i]["sma5"]
 
-        if signal == "strong_buy":
+        if signal == "strong_buy" and price_below_sma5:
             portfolio.buy(exec_price, fraction=1.0, trade_date=trade_date)
-        elif signal == "mild_buy":
+        elif signal == "mild_buy" and price_below_sma5:
             portfolio.buy(exec_price, fraction=0.5, trade_date=trade_date)
         elif signal == "strong_sell":
             portfolio.sell(exec_price, fraction=1.0, trade_date=trade_date)
@@ -148,10 +155,74 @@ def _eval_lstm(
         signal = test_signals.get(i, "hold")
         exec_price = val_df.iloc[i + 1]["open"]
         trade_date = str(val_df.iloc[i + 1]["date"])
+        price_below_sma5 = val_df.iloc[i]["close"] < val_df.iloc[i]["sma5"]
 
-        if signal == "strong_buy":
+        if signal == "strong_buy" and price_below_sma5:
             portfolio.buy(exec_price, fraction=1.0, trade_date=trade_date)
-        elif signal == "mild_buy":
+        elif signal == "mild_buy" and price_below_sma5:
+            portfolio.buy(exec_price, fraction=0.5, trade_date=trade_date)
+        elif signal == "strong_sell":
+            portfolio.sell(exec_price, fraction=1.0, trade_date=trade_date)
+        elif signal == "mild_sell":
+            portfolio.sell(exec_price, fraction=0.5, trade_date=trade_date)
+
+        daily_values.append(portfolio.value(val_df.iloc[i + 1]["close"]))
+
+    final_value = portfolio.value(val_df.iloc[-1]["close"])
+    total_return = (final_value - initial_capital) / initial_capital * 100
+
+    values = np.array([initial_capital] + daily_values)
+    peak = np.maximum.accumulate(values)
+    drawdowns = (values - peak) / peak
+    max_drawdown = drawdowns.min() * 100
+
+    daily_returns = np.diff(values) / values[:-1]
+    sharpe = (
+        np.mean(daily_returns) / np.std(daily_returns) * np.sqrt(252)
+        if len(daily_returns) > 1 and np.std(daily_returns) > 0
+        else 0.0
+    )
+
+    return {
+        "total_return": total_return,
+        "sharpe_ratio": sharpe,
+        "max_drawdown": max_drawdown,
+        "final_value": final_value,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Evaluate LightGBM on a val set
+# ---------------------------------------------------------------------------
+def _eval_lgbm(
+    train_df, val_df, n_estimators, max_depth, learning_rate,
+    num_leaves=31, min_child_samples=20, initial_capital=100_000,
+):
+    """Train LightGBM on train_df, evaluate on val_df. Return metrics dict."""
+    from lgbm_trading_bot import LGBMTradingBot
+
+    bot = LGBMTradingBot(
+        n_estimators=n_estimators, max_depth=max_depth,
+        learning_rate=learning_rate, num_leaves=num_leaves,
+        min_child_samples=min_child_samples,
+    )
+    bot.fit(train_df)
+    signals = bot.predict(val_df)
+    val_df = val_df.copy()
+    val_df["signal"] = signals
+
+    portfolio = Portfolio(capital=initial_capital)
+    daily_values = []
+
+    for i in range(len(val_df) - 1):
+        signal = val_df.iloc[i]["signal"]
+        exec_price = val_df.iloc[i + 1]["open"]
+        trade_date = str(val_df.iloc[i + 1]["date"])
+        price_below_sma5 = val_df.iloc[i]["close"] < val_df.iloc[i]["sma5"]
+
+        if signal == "strong_buy" and price_below_sma5:
+            portfolio.buy(exec_price, fraction=1.0, trade_date=trade_date)
+        elif signal == "mild_buy" and price_below_sma5:
             portfolio.buy(exec_price, fraction=0.5, trade_date=trade_date)
         elif signal == "strong_sell":
             portfolio.sell(exec_price, fraction=1.0, trade_date=trade_date)
@@ -320,17 +391,69 @@ def tune_lstm(
 
 
 # ---------------------------------------------------------------------------
+# Tune LightGBM
+# ---------------------------------------------------------------------------
+def tune_lgbm(
+    df: pd.DataFrame,
+    train_ratio: float = 0.6,
+    top_k: int = 5,
+    initial_capital: float = 100_000,
+) -> list[dict]:
+    """Grid search over LightGBM hyperparameters with inner validation."""
+    df = compute_indicators(df)
+    df = df.dropna(subset=FEATURE_COLS).reset_index(drop=True)
+
+    split = int(len(df) * train_ratio)
+    outer_train = df.iloc[:split].copy().reset_index(drop=True)
+
+    inner_train, inner_val = make_inner_split(outer_train, val_ratio=0.25)
+
+    configs = list(itertools.product(
+        LGBM_GRID["n_estimators"],
+        LGBM_GRID["max_depth"],
+        LGBM_GRID["learning_rate"],
+    ))
+    total = len(configs)
+    print(f"\nTuning LightGBM: {total} configurations...")
+
+    results = []
+    for idx, (n_est, md, lr) in enumerate(configs, 1):
+        print(f"  [{idx}/{total}] n_est={n_est}, md={md}, lr={lr}", end="", flush=True)
+        try:
+            metrics = _eval_lgbm(
+                inner_train, inner_val, n_est, md, lr,
+                initial_capital=initial_capital,
+            )
+            print(f"  sharpe={metrics['sharpe_ratio']:.3f}  ret={metrics['total_return']:+.2f}%")
+            results.append({
+                "params": {
+                    "n_estimators": n_est,
+                    "max_depth": md,
+                    "learning_rate": lr,
+                },
+                **metrics,
+            })
+        except Exception as e:
+            print(f"  SKIP: {e}")
+
+    results.sort(key=lambda x: x["sharpe_ratio"], reverse=True)
+    return results[:top_k]
+
+
+# ---------------------------------------------------------------------------
 # Final evaluation
 # ---------------------------------------------------------------------------
 def final_evaluation(
     df_raw: pd.DataFrame,
     best_kmeans_params: dict,
     best_lstm_params: dict,
+    best_lgbm_params: dict,
     train_ratio: float = 0.6,
     initial_capital: float = 100_000,
 ) -> dict:
     """Retrain best configs on full outer train set, evaluate on test set."""
     from dnn_trading_bot import run_dnn_backtest
+    from lgbm_trading_bot import run_lgbm_backtest
 
     # K-Means: original defaults
     km_orig = run_backtest(
@@ -363,11 +486,26 @@ def final_evaluation(
         hidden2=best_lstm_params["hidden2"],
     )
 
+    # LightGBM: original defaults
+    lgbm_orig = run_lgbm_backtest(
+        df_raw, train_ratio=train_ratio, initial_capital=initial_capital,
+    )
+
+    # LightGBM: tuned
+    lgbm_tuned = run_lgbm_backtest(
+        df_raw, train_ratio=train_ratio, initial_capital=initial_capital,
+        n_estimators=best_lgbm_params["n_estimators"],
+        max_depth=best_lgbm_params["max_depth"],
+        learning_rate=best_lgbm_params["learning_rate"],
+    )
+
     return {
         "km_original": _extract_metrics(km_orig),
         "km_tuned": _extract_metrics(km_tuned),
         "lstm_original": _extract_metrics(lstm_orig),
         "lstm_tuned": _extract_metrics(lstm_tuned),
+        "lgbm_original": _extract_metrics(lgbm_orig),
+        "lgbm_tuned": _extract_metrics(lgbm_tuned),
         "buy_and_hold_return": km_orig["buy_and_hold_return"],
     }
 
@@ -387,11 +525,11 @@ def _extract_metrics(results: dict) -> dict:
 # ---------------------------------------------------------------------------
 # Pretty print
 # ---------------------------------------------------------------------------
-def print_comparison(eval_results: dict, best_km: dict, best_lstm: dict):
+def print_comparison(eval_results: dict, best_km: dict, best_lstm: dict, best_lgbm: dict):
     """Print comparison table and best params."""
-    print(f"\n{'=' * 80}")
+    print(f"\n{'=' * 106}")
     print("COMPARISON TABLE (Final Evaluation on Test Set)")
-    print("=" * 80)
+    print("=" * 106)
 
     header = (
         f"  {'Metric':<20s}"
@@ -399,54 +537,66 @@ def print_comparison(eval_results: dict, best_km: dict, best_lstm: dict):
         f"  {'KM Tuned':>12s}"
         f"  {'LSTM Orig':>12s}"
         f"  {'LSTM Tuned':>12s}"
+        f"  {'LGBM Orig':>12s}"
+        f"  {'LGBM Tuned':>12s}"
         f"  {'Buy&Hold':>12s}"
     )
     print(header)
-    print("  " + "-" * 78)
+    print("  " + "-" * 104)
 
     km_o = eval_results["km_original"]
     km_t = eval_results["km_tuned"]
     ls_o = eval_results["lstm_original"]
     ls_t = eval_results["lstm_tuned"]
+    lg_o = eval_results["lgbm_original"]
+    lg_t = eval_results["lgbm_tuned"]
     bh = eval_results["buy_and_hold_return"]
 
     rows = [
         ("Total Return",
          f"{km_o['total_return']:+.2f}%", f"{km_t['total_return']:+.2f}%",
          f"{ls_o['total_return']:+.2f}%", f"{ls_t['total_return']:+.2f}%",
+         f"{lg_o['total_return']:+.2f}%", f"{lg_t['total_return']:+.2f}%",
          f"{bh:+.2f}%"),
         ("Sharpe Ratio",
          f"{km_o['sharpe_ratio']:.3f}", f"{km_t['sharpe_ratio']:.3f}",
          f"{ls_o['sharpe_ratio']:.3f}", f"{ls_t['sharpe_ratio']:.3f}",
+         f"{lg_o['sharpe_ratio']:.3f}", f"{lg_t['sharpe_ratio']:.3f}",
          "N/A"),
         ("Max Drawdown",
          f"{km_o['max_drawdown']:.2f}%", f"{km_t['max_drawdown']:.2f}%",
          f"{ls_o['max_drawdown']:.2f}%", f"{ls_t['max_drawdown']:.2f}%",
+         f"{lg_o['max_drawdown']:.2f}%", f"{lg_t['max_drawdown']:.2f}%",
          "N/A"),
         ("Win Rate",
          f"{km_o['win_rate']:.1f}%", f"{km_t['win_rate']:.1f}%",
          f"{ls_o['win_rate']:.1f}%", f"{ls_t['win_rate']:.1f}%",
+         f"{lg_o['win_rate']:.1f}%", f"{lg_t['win_rate']:.1f}%",
          "N/A"),
         ("Num Trades",
          f"{km_o['num_trades']}", f"{km_t['num_trades']}",
          f"{ls_o['num_trades']}", f"{ls_t['num_trades']}",
+         f"{lg_o['num_trades']}", f"{lg_t['num_trades']}",
          "1"),
         ("Final Value",
          f"{km_o['final_value']:,.0f}", f"{km_t['final_value']:,.0f}",
          f"{ls_o['final_value']:,.0f}", f"{ls_t['final_value']:,.0f}",
+         f"{lg_o['final_value']:,.0f}", f"{lg_t['final_value']:,.0f}",
          "N/A"),
     ]
     for label, *vals in rows:
         print(f"  {label:<20s}" + "".join(f"  {v:>12s}" for v in vals))
 
-    print(f"\n{'=' * 80}")
+    print(f"\n{'=' * 106}")
     print("BEST PARAMS")
-    print("=" * 80)
-    print(f"  K-Means: n_clusters={best_km['n_clusters']}, "
+    print("=" * 106)
+    print(f"  K-Means:  n_clusters={best_km['n_clusters']}, "
           f"features={best_km.get('feature_subset', 'all_6')}")
-    print(f"  LSTM:    ws={best_lstm['window_size']}, lr={best_lstm['lr']}, "
+    print(f"  LSTM:     ws={best_lstm['window_size']}, lr={best_lstm['lr']}, "
           f"bs={best_lstm['batch_size']}, "
           f"h1={best_lstm['hidden1']}, h2={best_lstm['hidden2']}")
+    print(f"  LightGBM: n_est={best_lgbm['n_estimators']}, "
+          f"md={best_lgbm['max_depth']}, lr={best_lgbm['learning_rate']}")
 
 
 # ---------------------------------------------------------------------------
@@ -485,20 +635,30 @@ def main():
               f"h1={p['hidden1']}, h2={p['hidden2']}"
               f"  sharpe={r['sharpe_ratio']:.3f}  ret={r['total_return']:+.2f}%")
 
+    # --- Tune LightGBM ---
+    lgbm_results = tune_lgbm(df, train_ratio=args.train_ratio, top_k=5)
+    print(f"\nTop 5 LightGBM configs (by val Sharpe):")
+    for i, r in enumerate(lgbm_results, 1):
+        p = r["params"]
+        print(f"  {i}. n_est={p['n_estimators']}, md={p['max_depth']}, "
+              f"lr={p['learning_rate']}"
+              f"  sharpe={r['sharpe_ratio']:.3f}  ret={r['total_return']:+.2f}%")
+
     # --- Final Evaluation ---
     best_km = km_results[0]["params"]
     best_lstm = lstm_results[0]["params"]
+    best_lgbm = lgbm_results[0]["params"]
 
     print(f"\n{'=' * 80}")
     print("FINAL EVALUATION: Retraining best configs on full outer train set")
     print("=" * 80)
 
     eval_results = final_evaluation(
-        df, best_km, best_lstm,
+        df, best_km, best_lstm, best_lgbm,
         train_ratio=args.train_ratio,
     )
 
-    print_comparison(eval_results, best_km, best_lstm)
+    print_comparison(eval_results, best_km, best_lstm, best_lgbm)
 
     elapsed = time.time() - t_start
     print(f"\nTotal tuning time: {elapsed:.1f}s")
@@ -507,11 +667,13 @@ def main():
     output = {
         "best_kmeans_params": {k: v for k, v in best_km.items() if k != "feature_cols"},
         "best_lstm_params": best_lstm,
+        "best_lgbm_params": best_lgbm,
         "kmeans_top5": [
             {k: v for k, v in r.items() if k != "params" or k == "params"}
             for r in km_results
         ],
         "lstm_top5": lstm_results,
+        "lgbm_top5": lgbm_results,
         "final_evaluation": eval_results,
     }
     # Convert feature_cols lists (not JSON-serializable as-is with numpy)

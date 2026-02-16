@@ -54,6 +54,18 @@ class TestGridContents:
             for c in cols:
                 assert c in FEATURE_COLS, f"{c} not in FEATURE_COLS"
 
+    def test_lgbm_grid_has_valid_keys(self):
+        from tune_hyperparams import LGBM_GRID
+        assert "n_estimators" in LGBM_GRID
+        assert "max_depth" in LGBM_GRID
+        assert "learning_rate" in LGBM_GRID
+        for n in LGBM_GRID["n_estimators"]:
+            assert isinstance(n, int) and n > 0
+        for d in LGBM_GRID["max_depth"]:
+            assert isinstance(d, int) and d > 0
+        for lr in LGBM_GRID["learning_rate"]:
+            assert isinstance(lr, float) and lr > 0
+
 
 # ---------------------------------------------------------------------------
 # Validation split tests
@@ -100,6 +112,14 @@ class TestTuneFunctions:
             assert "params" in r
             assert "sharpe_ratio" in r
             assert "total_return" in r
+
+    def test_tune_lgbm_returns_sorted(self):
+        from tune_hyperparams import tune_lgbm
+        df = _make_ohlcv(300)
+        results = tune_lgbm(df, train_ratio=0.6, top_k=3)
+        assert len(results) > 0
+        sharpes = [r["sharpe_ratio"] for r in results]
+        assert sharpes == sorted(sharpes, reverse=True)
 
 
 # ---------------------------------------------------------------------------

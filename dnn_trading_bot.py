@@ -304,15 +304,16 @@ def run_dnn_backtest(
         signal = test_signals.get(i, "hold")
         exec_price = test_df.loc[i + 1, "open"]
         trade_date = str(test_df.loc[i + 1, "date"])
+        price_below_sma5 = test_df.loc[i, "close"] < test_df.loc[i, "sma5"]
 
         shares_traded = 0
         action = "hold"
 
-        if signal == "strong_buy":
+        if signal == "strong_buy" and price_below_sma5:
             shares_traded = portfolio.buy(exec_price, fraction=1.0, trade_date=trade_date)
             if shares_traded > 0:
                 action = "buy"
-        elif signal == "mild_buy":
+        elif signal == "mild_buy" and price_below_sma5:
             shares_traded = portfolio.buy(exec_price, fraction=0.5, trade_date=trade_date)
             if shares_traded > 0:
                 action = "buy"

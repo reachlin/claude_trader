@@ -68,6 +68,9 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     atr14 = tr.ewm(span=14, min_periods=14, adjust=False).mean()
     df["atr_ratio"] = atr14 / close
 
+    # 7. SMA(5) — 5-day simple moving average (used as buy filter, not a model feature)
+    df["sma5"] = close.rolling(5).mean()
+
     return df
 
 
@@ -277,15 +280,16 @@ def run_backtest(
         signal = test_df.loc[i, "signal"]
         exec_price = test_df.loc[i + 1, "open"]  # execute at next day's open
         trade_date = str(test_df.loc[i + 1, "date"])
+        price_below_sma5 = test_df.loc[i, "close"] < test_df.loc[i, "sma5"]
 
         shares_traded = 0
         action = "hold"
 
-        if signal == "strong_buy":
+        if signal == "strong_buy" and price_below_sma5:
             shares_traded = portfolio.buy(exec_price, fraction=1.0, trade_date=trade_date)
             if shares_traded > 0:
                 action = "buy"
-        elif signal == "mild_buy":
+        elif signal == "mild_buy" and price_below_sma5:
             shares_traded = portfolio.buy(exec_price, fraction=0.5, trade_date=trade_date)
             if shares_traded > 0:
                 action = "buy"
