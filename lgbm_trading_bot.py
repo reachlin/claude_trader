@@ -47,9 +47,9 @@ class LGBMTradingBot:
 
     def fit(self, df: pd.DataFrame):
         """Fit scaler + LGBMClassifier on indicator features with percentile labels."""
-        features = df[FEATURE_COLS].values
+        features = df[FEATURE_COLS]
         self.scaler.fit(features)
-        X = self.scaler.transform(features)
+        X = pd.DataFrame(self.scaler.transform(features), columns=FEATURE_COLS)
 
         # Forward 1-day return
         closes = df["close"].values
@@ -77,15 +77,15 @@ class LGBMTradingBot:
 
     def predict(self, df: pd.DataFrame) -> list[str]:
         """Predict signal for each row. Returns one signal per row."""
-        features = df[FEATURE_COLS].values
-        X = self.scaler.transform(features)
+        features = df[FEATURE_COLS]
+        X = pd.DataFrame(self.scaler.transform(features), columns=FEATURE_COLS)
         preds = self.model.predict(X)
         return [SIGNAL_NAMES[p] for p in preds]
 
     def predict_single(self, row: pd.Series) -> str:
         """Predict signal for a single row."""
-        features = row[FEATURE_COLS].values.reshape(1, -1)
-        X = self.scaler.transform(features)
+        features = pd.DataFrame([row[FEATURE_COLS].values], columns=FEATURE_COLS)
+        X = pd.DataFrame(self.scaler.transform(features), columns=FEATURE_COLS)
         pred = self.model.predict(X)[0]
         return SIGNAL_NAMES[pred]
 

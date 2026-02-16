@@ -9,23 +9,73 @@ import akshare as ak
 import pandas as pd
 
 
+def _is_index_symbol(symbol: str) -> bool:
+    """Check if the symbol refers to a market index (e.g. 000001.SH, 399001.SZ)."""
+    return "." in symbol and symbol.split(".")[-1].upper() in ("SH", "SZ")
+
+
+def _fetch_index_daily(
+    symbol: str,
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> pd.DataFrame:
+    """Fetch daily OHLCV data for a China market index.
+
+    Args:
+        symbol: Index symbol with exchange suffix, e.g. "000001.SH" (Shanghai
+                Composite), "399001.SZ" (Shenzhen Component).
+        start_date: Start date in YYYYMMDD format. Defaults to 1 year ago.
+        end_date: End date in YYYYMMDD format. Defaults to today.
+
+    Returns:
+        DataFrame with columns: date, open, close, high, low, volume.
+    """
+    if end_date is None:
+        end_date = datetime.now().strftime("%Y%m%d")
+    if start_date is None:
+        start_date = (datetime.now() - timedelta(days=365)).strftime("%Y%m%d")
+
+    # akshare uses "sh000001" / "sz399001" format
+    code, exchange = symbol.split(".")
+    prefix = exchange.lower()  # sh or sz
+    ak_symbol = f"{prefix}{code}"
+
+    df = ak.stock_zh_index_daily(symbol=ak_symbol)
+
+    # Columns are already English: date, open, high, low, close, volume
+    # Filter by date range
+    df["date"] = pd.to_datetime(df["date"])
+    start_dt = pd.to_datetime(start_date)
+    end_dt = pd.to_datetime(end_date)
+    df = df[(df["date"] >= start_dt) & (df["date"] <= end_dt)].copy()
+    df["date"] = df["date"].dt.strftime("%Y-%m-%d")
+    df = df.reset_index(drop=True)
+
+    return df
+
+
 def fetch_stock_daily(
     symbol: str,
     start_date: str | None = None,
     end_date: str | None = None,
 ) -> pd.DataFrame:
-    """Fetch daily OHLCV data for a China A-share stock.
+    """Fetch daily OHLCV data for a China A-share stock or index.
 
     Args:
         symbol: Stock ticker number, e.g. "000001" (Ping An Bank),
-                "600519" (Kweichow Moutai).
+                "600519" (Kweichow Moutai), or index with exchange suffix,
+                e.g. "000001.SH" (Shanghai Composite), "399001.SZ" (Shenzhen
+                Component).
         start_date: Start date in YYYYMMDD format. Defaults to 1 year ago.
         end_date: End date in YYYYMMDD format. Defaults to today.
 
     Returns:
-        DataFrame with columns: date, open, close, high, low, volume, amount,
-        amplitude, pct_change, change, turnover_rate.
+        DataFrame with columns: date, open, close, high, low, volume (and more
+        for individual stocks).
     """
+    if _is_index_symbol(symbol):
+        return _fetch_index_daily(symbol, start_date, end_date)
+
     if end_date is None:
         end_date = datetime.now().strftime("%Y%m%d")
     if start_date is None:
