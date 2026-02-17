@@ -27,6 +27,7 @@ from dnn_trading_bot import DNNTradingBot, run_dnn_backtest
 from lgbm_trading_bot import LGBMTradingBot, run_lgbm_backtest
 from ppo_trading_bot import PPOTradingBot, run_ppo_backtest
 from tune_hyperparams import tune_kmeans, tune_lgbm, tune_lstm, tune_ppo
+from compare_models import run_majority_backtest
 
 
 # ---------------------------------------------------------------------------
@@ -52,25 +53,27 @@ def _last_trading_day() -> str:
 
 def _print_comparison_table(results: dict, title: str):
     """Print a comparison table from a results dict."""
-    print(f"\n{'=' * 90}")
+    print(f"\n{'=' * 104}")
     print(title)
-    print("=" * 90)
-
-    header = f"  {'Metric':<22s} {'K-Means':>12s} {'LSTM':>12s} {'LightGBM':>12s} {'PPO':>12s} {'Buy&Hold':>12s}"
-    print(header)
-    print("  " + "-" * 88)
+    print("=" * 104)
 
     km, lstm, lgbm, ppo = results["km"], results["lstm"], results["lgbm"], results["ppo"]
+    uv = results["majority"]
     bh = km["buy_and_hold_return"]
 
+    header = (f"  {'Metric':<22s} {'K-Means':>12s} {'LSTM':>12s} {'LightGBM':>12s}"
+              f" {'PPO':>12s} {'Majority':>12s} {'Buy&Hold':>12s}")
+    print(header)
+    print("  " + "-" * 102)
+
     rows = [
-        ("Total Return",   f"{km['total_return']:+.2f}%",  f"{lstm['total_return']:+.2f}%",  f"{lgbm['total_return']:+.2f}%",  f"{ppo['total_return']:+.2f}%",  f"{bh:+.2f}%"),
-        ("Sharpe Ratio",   f"{km['sharpe_ratio']:.3f}",    f"{lstm['sharpe_ratio']:.3f}",    f"{lgbm['sharpe_ratio']:.3f}",    f"{ppo['sharpe_ratio']:.3f}",    "N/A"),
-        ("Max Drawdown",   f"{km['max_drawdown']:.2f}%",   f"{lstm['max_drawdown']:.2f}%",   f"{lgbm['max_drawdown']:.2f}%",   f"{ppo['max_drawdown']:.2f}%",   "N/A"),
-        ("Win Rate",       f"{km['win_rate']:.1f}%",       f"{lstm['win_rate']:.1f}%",       f"{lgbm['win_rate']:.1f}%",       f"{ppo['win_rate']:.1f}%",       "N/A"),
-        ("Profit Factor",  f"{km['profit_factor']:.2f}",   f"{lstm['profit_factor']:.2f}",   f"{lgbm['profit_factor']:.2f}",   f"{ppo['profit_factor']:.2f}",   "N/A"),
-        ("Num Trades",     f"{km['num_trades']}",          f"{lstm['num_trades']}",          f"{lgbm['num_trades']}",          f"{ppo['num_trades']}",          "1"),
-        ("Final Value",    f"{km['final_value']:,.0f}",    f"{lstm['final_value']:,.0f}",    f"{lgbm['final_value']:,.0f}",    f"{ppo['final_value']:,.0f}",    "N/A"),
+        ("Total Return",   f"{km['total_return']:+.2f}%",  f"{lstm['total_return']:+.2f}%",  f"{lgbm['total_return']:+.2f}%",  f"{ppo['total_return']:+.2f}%",  f"{uv['total_return']:+.2f}%",  f"{bh:+.2f}%"),
+        ("Sharpe Ratio",   f"{km['sharpe_ratio']:.3f}",    f"{lstm['sharpe_ratio']:.3f}",    f"{lgbm['sharpe_ratio']:.3f}",    f"{ppo['sharpe_ratio']:.3f}",    f"{uv['sharpe_ratio']:.3f}",    "N/A"),
+        ("Max Drawdown",   f"{km['max_drawdown']:.2f}%",   f"{lstm['max_drawdown']:.2f}%",   f"{lgbm['max_drawdown']:.2f}%",   f"{ppo['max_drawdown']:.2f}%",   f"{uv['max_drawdown']:.2f}%",   "N/A"),
+        ("Win Rate",       f"{km['win_rate']:.1f}%",       f"{lstm['win_rate']:.1f}%",       f"{lgbm['win_rate']:.1f}%",       f"{ppo['win_rate']:.1f}%",       f"{uv['win_rate']:.1f}%",       "N/A"),
+        ("Profit Factor",  f"{km['profit_factor']:.2f}",   f"{lstm['profit_factor']:.2f}",   f"{lgbm['profit_factor']:.2f}",   f"{ppo['profit_factor']:.2f}",   f"{uv['profit_factor']:.2f}",   "N/A"),
+        ("Num Trades",     f"{km['num_trades']}",          f"{lstm['num_trades']}",          f"{lgbm['num_trades']}",          f"{ppo['num_trades']}",          f"{uv['num_trades']}",          "1"),
+        ("Final Value",    f"{km['final_value']:,.0f}",    f"{lstm['final_value']:,.0f}",    f"{lgbm['final_value']:,.0f}",    f"{ppo['final_value']:,.0f}",    f"{uv['final_value']:,.0f}",    "N/A"),
     ]
     for label, *vals in rows:
         print(f"  {label:<22s}" + "".join(f" {v:>12s}" for v in vals))
@@ -174,7 +177,10 @@ def train_all(ticker: dict) -> dict:
     ppo = run_ppo_backtest(df, train_ratio=0.6, initial_capital=cap)
     print(f"  PPO:      return={ppo['total_return']:+.2f}%  sharpe={ppo['sharpe_ratio']:.3f}  trades={ppo['num_trades']}")
 
-    return {"km": km, "lstm": lstm, "lgbm": lgbm, "ppo": ppo, "df": df, "capital": cap}
+    uv = run_majority_backtest(km, lstm, lgbm, ppo, initial_capital=cap)
+    print(f"  Majority:  return={uv['total_return']:+.2f}%  sharpe={uv['sharpe_ratio']:.3f}  trades={uv['num_trades']}")
+
+    return {"km": km, "lstm": lstm, "lgbm": lgbm, "ppo": ppo, "majority": uv, "df": df, "capital": cap}
 
 
 # ---------------------------------------------------------------------------
