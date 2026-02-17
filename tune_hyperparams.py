@@ -55,6 +55,13 @@ LGBM_GRID = {
     "learning_rate": [0.01, 0.05, 0.1],
 }
 
+PPO_GRID = {
+    "total_timesteps": [50_000, 100_000, 200_000],
+    "learning_rate": [1e-4, 3e-4, 1e-3],
+    "ent_coef": [0.0, 0.01, 0.05],
+    "n_steps": [1024, 2048],
+}
+
 
 # ---------------------------------------------------------------------------
 # Inner split helper
@@ -205,6 +212,70 @@ def _eval_lgbm(
         n_estimators=n_estimators, max_depth=max_depth,
         learning_rate=learning_rate, num_leaves=num_leaves,
         min_child_samples=min_child_samples,
+    )
+    bot.fit(train_df)
+    signals = bot.predict(val_df)
+    val_df = val_df.copy()
+    val_df["signal"] = signals
+
+    portfolio = Portfolio(capital=initial_capital)
+    daily_values = []
+
+    for i in range(len(val_df) - 1):
+        signal = val_df.iloc[i]["signal"]
+        exec_price = val_df.iloc[i + 1]["open"]
+        trade_date = str(val_df.iloc[i + 1]["date"])
+        price_below_sma5 = val_df.iloc[i]["close"] < val_df.iloc[i]["sma5"]
+
+        if signal == "strong_buy" and price_below_sma5:
+            portfolio.buy(exec_price, fraction=1.0, trade_date=trade_date)
+        elif signal == "mild_buy" and price_below_sma5:
+            portfolio.buy(exec_price, fraction=0.5, trade_date=trade_date)
+        elif signal == "strong_sell":
+            portfolio.sell(exec_price, fraction=1.0, trade_date=trade_date)
+        elif signal == "mild_sell":
+            portfolio.sell(exec_price, fraction=0.5, trade_date=trade_date)
+
+        daily_values.append(portfolio.value(val_df.iloc[i + 1]["close"]))
+
+    final_value = portfolio.value(val_df.iloc[-1]["close"])
+    total_return = (final_value - initial_capital) / initial_capital * 100
+
+    values = np.array([initial_capital] + daily_values)
+    peak = np.maximum.accumulate(values)
+    drawdowns = (values - peak) / peak
+    max_drawdown = drawdowns.min() * 100
+
+    daily_returns = np.diff(values) / values[:-1]
+    sharpe = (
+        np.mean(daily_returns) / np.std(daily_returns) * np.sqrt(252)
+        if len(daily_returns) > 1 and np.std(daily_returns) > 0
+        else 0.0
+    )
+
+    return {
+        "total_return": total_return,
+        "sharpe_ratio": sharpe,
+        "max_drawdown": max_drawdown,
+        "final_value": final_value,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Evaluate PPO on a val set
+# ---------------------------------------------------------------------------
+def _eval_ppo(
+    train_df, val_df, total_timesteps, learning_rate, ent_coef, n_steps,
+    initial_capital=100_000,
+):
+    """Train PPO on train_df, evaluate on val_df. Return metrics dict."""
+    from ppo_trading_bot import PPOTradingBot
+
+    bot = PPOTradingBot(
+        total_timesteps=total_timesteps,
+        learning_rate=learning_rate,
+        ent_coef=ent_coef,
+        n_steps=n_steps,
     )
     bot.fit(train_df)
     signals = bot.predict(val_df)
@@ -441,6 +512,60 @@ def tune_lgbm(
 
 
 # ---------------------------------------------------------------------------
+# Tune PPO
+# ---------------------------------------------------------------------------
+def tune_ppo(
+    df: pd.DataFrame,
+    train_ratio: float = 0.6,
+    top_k: int = 5,
+    initial_capital: float = 100_000,
+) -> list[dict]:
+    """Grid search over PPO hyperparameters with inner validation."""
+    df = compute_indicators(df)
+    df = df.dropna(subset=FEATURE_COLS).reset_index(drop=True)
+
+    split = int(len(df) * train_ratio)
+    outer_train = df.iloc[:split].copy().reset_index(drop=True)
+
+    inner_train, inner_val = make_inner_split(outer_train, val_ratio=0.25)
+
+    configs = list(itertools.product(
+        PPO_GRID["total_timesteps"],
+        PPO_GRID["learning_rate"],
+        PPO_GRID["ent_coef"],
+        PPO_GRID["n_steps"],
+    ))
+    total = len(configs)
+    print(f"\nTuning PPO: {total} configurations...")
+
+    results = []
+    for idx, (ts, lr, ent, ns) in enumerate(configs, 1):
+        print(f"  [{idx}/{total}] ts={ts}, lr={lr}, ent={ent}, ns={ns}", end="", flush=True)
+        t0 = time.time()
+        try:
+            metrics = _eval_ppo(
+                inner_train, inner_val, ts, lr, ent, ns,
+                initial_capital=initial_capital,
+            )
+            elapsed = time.time() - t0
+            print(f"  sharpe={metrics['sharpe_ratio']:.3f}  ret={metrics['total_return']:+.2f}%  ({elapsed:.1f}s)")
+            results.append({
+                "params": {
+                    "total_timesteps": ts,
+                    "learning_rate": lr,
+                    "ent_coef": ent,
+                    "n_steps": ns,
+                },
+                **metrics,
+            })
+        except Exception as e:
+            print(f"  SKIP: {e}")
+
+    results.sort(key=lambda x: x["sharpe_ratio"], reverse=True)
+    return results[:top_k]
+
+
+# ---------------------------------------------------------------------------
 # Final evaluation
 # ---------------------------------------------------------------------------
 def final_evaluation(
@@ -448,12 +573,14 @@ def final_evaluation(
     best_kmeans_params: dict,
     best_lstm_params: dict,
     best_lgbm_params: dict,
+    best_ppo_params: dict = None,
     train_ratio: float = 0.6,
     initial_capital: float = 100_000,
 ) -> dict:
     """Retrain best configs on full outer train set, evaluate on test set."""
     from dnn_trading_bot import run_dnn_backtest
     from lgbm_trading_bot import run_lgbm_backtest
+    from ppo_trading_bot import run_ppo_backtest
 
     # K-Means: original defaults
     km_orig = run_backtest(
@@ -499,6 +626,23 @@ def final_evaluation(
         learning_rate=best_lgbm_params["learning_rate"],
     )
 
+    # PPO: original defaults
+    ppo_orig = run_ppo_backtest(
+        df_raw, train_ratio=train_ratio, initial_capital=initial_capital,
+    )
+
+    # PPO: tuned
+    if best_ppo_params:
+        ppo_tuned = run_ppo_backtest(
+            df_raw, train_ratio=train_ratio, initial_capital=initial_capital,
+            total_timesteps=best_ppo_params["total_timesteps"],
+            learning_rate=best_ppo_params["learning_rate"],
+            ent_coef=best_ppo_params["ent_coef"],
+            n_steps=best_ppo_params["n_steps"],
+        )
+    else:
+        ppo_tuned = ppo_orig
+
     return {
         "km_original": _extract_metrics(km_orig),
         "km_tuned": _extract_metrics(km_tuned),
@@ -506,6 +650,8 @@ def final_evaluation(
         "lstm_tuned": _extract_metrics(lstm_tuned),
         "lgbm_original": _extract_metrics(lgbm_orig),
         "lgbm_tuned": _extract_metrics(lgbm_tuned),
+        "ppo_original": _extract_metrics(ppo_orig),
+        "ppo_tuned": _extract_metrics(ppo_tuned),
         "buy_and_hold_return": km_orig["buy_and_hold_return"],
     }
 
@@ -525,11 +671,12 @@ def _extract_metrics(results: dict) -> dict:
 # ---------------------------------------------------------------------------
 # Pretty print
 # ---------------------------------------------------------------------------
-def print_comparison(eval_results: dict, best_km: dict, best_lstm: dict, best_lgbm: dict):
+def print_comparison(eval_results: dict, best_km: dict, best_lstm: dict, best_lgbm: dict,
+                     best_ppo: dict = None):
     """Print comparison table and best params."""
-    print(f"\n{'=' * 106}")
+    print(f"\n{'=' * 134}")
     print("COMPARISON TABLE (Final Evaluation on Test Set)")
-    print("=" * 106)
+    print("=" * 134)
 
     header = (
         f"  {'Metric':<20s}"
@@ -539,10 +686,12 @@ def print_comparison(eval_results: dict, best_km: dict, best_lstm: dict, best_lg
         f"  {'LSTM Tuned':>12s}"
         f"  {'LGBM Orig':>12s}"
         f"  {'LGBM Tuned':>12s}"
+        f"  {'PPO Orig':>12s}"
+        f"  {'PPO Tuned':>12s}"
         f"  {'Buy&Hold':>12s}"
     )
     print(header)
-    print("  " + "-" * 104)
+    print("  " + "-" * 132)
 
     km_o = eval_results["km_original"]
     km_t = eval_results["km_tuned"]
@@ -550,6 +699,8 @@ def print_comparison(eval_results: dict, best_km: dict, best_lstm: dict, best_lg
     ls_t = eval_results["lstm_tuned"]
     lg_o = eval_results["lgbm_original"]
     lg_t = eval_results["lgbm_tuned"]
+    pp_o = eval_results["ppo_original"]
+    pp_t = eval_results["ppo_tuned"]
     bh = eval_results["buy_and_hold_return"]
 
     rows = [
@@ -557,39 +708,45 @@ def print_comparison(eval_results: dict, best_km: dict, best_lstm: dict, best_lg
          f"{km_o['total_return']:+.2f}%", f"{km_t['total_return']:+.2f}%",
          f"{ls_o['total_return']:+.2f}%", f"{ls_t['total_return']:+.2f}%",
          f"{lg_o['total_return']:+.2f}%", f"{lg_t['total_return']:+.2f}%",
+         f"{pp_o['total_return']:+.2f}%", f"{pp_t['total_return']:+.2f}%",
          f"{bh:+.2f}%"),
         ("Sharpe Ratio",
          f"{km_o['sharpe_ratio']:.3f}", f"{km_t['sharpe_ratio']:.3f}",
          f"{ls_o['sharpe_ratio']:.3f}", f"{ls_t['sharpe_ratio']:.3f}",
          f"{lg_o['sharpe_ratio']:.3f}", f"{lg_t['sharpe_ratio']:.3f}",
+         f"{pp_o['sharpe_ratio']:.3f}", f"{pp_t['sharpe_ratio']:.3f}",
          "N/A"),
         ("Max Drawdown",
          f"{km_o['max_drawdown']:.2f}%", f"{km_t['max_drawdown']:.2f}%",
          f"{ls_o['max_drawdown']:.2f}%", f"{ls_t['max_drawdown']:.2f}%",
          f"{lg_o['max_drawdown']:.2f}%", f"{lg_t['max_drawdown']:.2f}%",
+         f"{pp_o['max_drawdown']:.2f}%", f"{pp_t['max_drawdown']:.2f}%",
          "N/A"),
         ("Win Rate",
          f"{km_o['win_rate']:.1f}%", f"{km_t['win_rate']:.1f}%",
          f"{ls_o['win_rate']:.1f}%", f"{ls_t['win_rate']:.1f}%",
          f"{lg_o['win_rate']:.1f}%", f"{lg_t['win_rate']:.1f}%",
+         f"{pp_o['win_rate']:.1f}%", f"{pp_t['win_rate']:.1f}%",
          "N/A"),
         ("Num Trades",
          f"{km_o['num_trades']}", f"{km_t['num_trades']}",
          f"{ls_o['num_trades']}", f"{ls_t['num_trades']}",
          f"{lg_o['num_trades']}", f"{lg_t['num_trades']}",
+         f"{pp_o['num_trades']}", f"{pp_t['num_trades']}",
          "1"),
         ("Final Value",
          f"{km_o['final_value']:,.0f}", f"{km_t['final_value']:,.0f}",
          f"{ls_o['final_value']:,.0f}", f"{ls_t['final_value']:,.0f}",
          f"{lg_o['final_value']:,.0f}", f"{lg_t['final_value']:,.0f}",
+         f"{pp_o['final_value']:,.0f}", f"{pp_t['final_value']:,.0f}",
          "N/A"),
     ]
     for label, *vals in rows:
         print(f"  {label:<20s}" + "".join(f"  {v:>12s}" for v in vals))
 
-    print(f"\n{'=' * 106}")
+    print(f"\n{'=' * 134}")
     print("BEST PARAMS")
-    print("=" * 106)
+    print("=" * 134)
     print(f"  K-Means:  n_clusters={best_km['n_clusters']}, "
           f"features={best_km.get('feature_subset', 'all_6')}")
     print(f"  LSTM:     ws={best_lstm['window_size']}, lr={best_lstm['lr']}, "
@@ -597,6 +754,9 @@ def print_comparison(eval_results: dict, best_km: dict, best_lstm: dict, best_lg
           f"h1={best_lstm['hidden1']}, h2={best_lstm['hidden2']}")
     print(f"  LightGBM: n_est={best_lgbm['n_estimators']}, "
           f"md={best_lgbm['max_depth']}, lr={best_lgbm['learning_rate']}")
+    if best_ppo:
+        print(f"  PPO:      ts={best_ppo['total_timesteps']}, lr={best_ppo['learning_rate']}, "
+              f"ent={best_ppo['ent_coef']}, ns={best_ppo['n_steps']}")
 
 
 # ---------------------------------------------------------------------------
@@ -644,21 +804,31 @@ def main():
               f"lr={p['learning_rate']}"
               f"  sharpe={r['sharpe_ratio']:.3f}  ret={r['total_return']:+.2f}%")
 
+    # --- Tune PPO ---
+    ppo_results = tune_ppo(df, train_ratio=args.train_ratio, top_k=5)
+    print(f"\nTop 5 PPO configs (by val Sharpe):")
+    for i, r in enumerate(ppo_results, 1):
+        p = r["params"]
+        print(f"  {i}. ts={p['total_timesteps']}, lr={p['learning_rate']}, "
+              f"ent={p['ent_coef']}, ns={p['n_steps']}"
+              f"  sharpe={r['sharpe_ratio']:.3f}  ret={r['total_return']:+.2f}%")
+
     # --- Final Evaluation ---
     best_km = km_results[0]["params"]
     best_lstm = lstm_results[0]["params"]
     best_lgbm = lgbm_results[0]["params"]
+    best_ppo = ppo_results[0]["params"] if ppo_results else None
 
     print(f"\n{'=' * 80}")
     print("FINAL EVALUATION: Retraining best configs on full outer train set")
     print("=" * 80)
 
     eval_results = final_evaluation(
-        df, best_km, best_lstm, best_lgbm,
+        df, best_km, best_lstm, best_lgbm, best_ppo,
         train_ratio=args.train_ratio,
     )
 
-    print_comparison(eval_results, best_km, best_lstm, best_lgbm)
+    print_comparison(eval_results, best_km, best_lstm, best_lgbm, best_ppo)
 
     elapsed = time.time() - t_start
     print(f"\nTotal tuning time: {elapsed:.1f}s")
@@ -668,12 +838,14 @@ def main():
         "best_kmeans_params": {k: v for k, v in best_km.items() if k != "feature_cols"},
         "best_lstm_params": best_lstm,
         "best_lgbm_params": best_lgbm,
+        "best_ppo_params": best_ppo,
         "kmeans_top5": [
             {k: v for k, v in r.items() if k != "params" or k == "params"}
             for r in km_results
         ],
         "lstm_top5": lstm_results,
         "lgbm_top5": lgbm_results,
+        "ppo_top5": ppo_results,
         "final_evaluation": eval_results,
     }
     # Convert feature_cols lists (not JSON-serializable as-is with numpy)

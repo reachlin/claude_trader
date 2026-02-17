@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for re_tain.py — the multi-ticker train/tune/consensus pipeline."""
+"""Tests for daily_pipeline.py — the multi-ticker train/tune/consensus pipeline."""
 
 from datetime import datetime, timedelta
 from unittest.mock import patch, MagicMock
@@ -40,25 +40,25 @@ def _prepared_df(n=300, seed=42):
 # ---------------------------------------------------------------------------
 class TestLastTradingDay:
     def test_returns_yyyymmdd_format(self):
-        from re_tain import _last_trading_day
+        from daily_pipeline import _last_trading_day
         result = _last_trading_day()
         assert len(result) == 8
         datetime.strptime(result, "%Y%m%d")  # must parse without error
 
     def test_not_weekend(self):
-        from re_tain import _last_trading_day
+        from daily_pipeline import _last_trading_day
         result = _last_trading_day()
         dt = datetime.strptime(result, "%Y%m%d")
         assert dt.weekday() < 5  # 0=Mon, 4=Fri
 
     def test_saturday_rolls_back_to_friday(self):
         """If today is Saturday, should return the previous Friday."""
-        from re_tain import _last_trading_day
+        from daily_pipeline import _last_trading_day
         # Find a Saturday
         today = datetime.now()
         while today.weekday() != 5:
             today += timedelta(days=1)
-        with patch("re_tain.datetime") as mock_dt:
+        with patch("daily_pipeline.datetime") as mock_dt:
             mock_dt.now.return_value = today
             mock_dt.strftime = datetime.strftime
             # The function uses today.weekday() and today.strftime — patch datetime.now
@@ -73,7 +73,7 @@ class TestLastTradingDay:
 # ---------------------------------------------------------------------------
 class TestConsensusClassify:
     def test_buy_signals_classify_as_buy(self):
-        from re_tain import run_consensus
+        from daily_pipeline import run_consensus
         # Test the classify function indirectly through consensus behavior
         # Instead, extract and test the logic directly
         def classify(signal):
@@ -95,18 +95,18 @@ class TestConsensusClassify:
 # ---------------------------------------------------------------------------
 class TestTickersConfig:
     def test_tickers_have_required_keys(self):
-        from re_tain import TICKERS
+        from daily_pipeline import TICKERS
         required = {"symbol", "start", "csv", "capital", "label"}
         for t in TICKERS:
             assert required.issubset(t.keys()), f"Missing keys in {t}"
 
     def test_tickers_capitals_positive(self):
-        from re_tain import TICKERS
+        from daily_pipeline import TICKERS
         for t in TICKERS:
             assert t["capital"] > 0
 
     def test_tickers_start_dates_valid(self):
-        from re_tain import TICKERS
+        from daily_pipeline import TICKERS
         for t in TICKERS:
             datetime.strptime(t["start"], "%Y%m%d")
 
@@ -116,7 +116,7 @@ class TestTickersConfig:
 # ---------------------------------------------------------------------------
 class TestTrainAll:
     def test_train_all_returns_expected_keys(self, tmp_path):
-        from re_tain import train_all
+        from daily_pipeline import train_all
 
         # Create a small CSV
         df = _make_ohlcv(300)
@@ -134,11 +134,12 @@ class TestTrainAll:
         assert "km" in results
         assert "lstm" in results
         assert "lgbm" in results
+        assert "ppo" in results
         assert "df" in results
         assert "capital" in results
 
     def test_train_all_models_produce_returns(self, tmp_path):
-        from re_tain import train_all
+        from daily_pipeline import train_all
 
         df = _make_ohlcv(300)
         csv_path = tmp_path / "test.csv"
@@ -152,7 +153,7 @@ class TestTrainAll:
             "label": "Test Stock",
         }
         results = train_all(ticker)
-        for model in ("km", "lstm", "lgbm"):
+        for model in ("km", "lstm", "lgbm", "ppo"):
             assert "total_return" in results[model]
             assert "sharpe_ratio" in results[model]
             assert "num_trades" in results[model]
@@ -164,7 +165,7 @@ class TestTrainAll:
 # ---------------------------------------------------------------------------
 class TestRunConsensus:
     def test_consensus_returns_expected_keys(self, tmp_path):
-        from re_tain import run_consensus
+        from daily_pipeline import run_consensus
 
         df = _make_ohlcv(300)
         csv_path = tmp_path / "test.csv"
@@ -187,7 +188,7 @@ class TestRunConsensus:
         assert expected_keys.issubset(result.keys())
 
     def test_consensus_agreement_counts_sum_to_total(self, tmp_path):
-        from re_tain import run_consensus
+        from daily_pipeline import run_consensus
 
         df = _make_ohlcv(300)
         csv_path = tmp_path / "test.csv"
@@ -205,7 +206,7 @@ class TestRunConsensus:
         assert total == result["total_days"]
 
     def test_consensus_final_value_positive(self, tmp_path):
-        from re_tain import run_consensus
+        from daily_pipeline import run_consensus
 
         df = _make_ohlcv(300)
         csv_path = tmp_path / "test.csv"
@@ -227,7 +228,7 @@ class TestRunConsensus:
 # ---------------------------------------------------------------------------
 class TestPrintHelpers:
     def test_print_comparison_table_no_crash(self, capsys):
-        from re_tain import _print_comparison_table
+        from daily_pipeline import _print_comparison_table
 
         results = {
             "km": {"total_return": 10.0, "sharpe_ratio": 0.5, "max_drawdown": -20.0,
@@ -239,6 +240,9 @@ class TestPrintHelpers:
             "lgbm": {"total_return": 8.0, "sharpe_ratio": 0.4, "max_drawdown": -18.0,
                      "win_rate": 52.0, "profit_factor": 1.3, "num_trades": 80,
                      "final_value": 108_000},
+            "ppo": {"total_return": 7.0, "sharpe_ratio": 0.35, "max_drawdown": -19.0,
+                    "win_rate": 51.0, "profit_factor": 1.25, "num_trades": 70,
+                    "final_value": 107_000},
         }
         _print_comparison_table(results, "Test Title")
         captured = capsys.readouterr()
@@ -246,9 +250,10 @@ class TestPrintHelpers:
         assert "K-Means" in captured.out
         assert "LSTM" in captured.out
         assert "LightGBM" in captured.out
+        assert "PPO" in captured.out
 
     def test_print_consensus_no_crash(self, capsys):
-        from re_tain import print_consensus
+        from daily_pipeline import print_consensus
 
         result = {
             "total_return": 10.0, "buy_and_hold_return": 5.0,
@@ -259,7 +264,8 @@ class TestPrintHelpers:
             "total_days": 100,
             "trades": [
                 {"date": "2024-01-01", "action": "buy", "shares": 100,
-                 "price": 10.0, "km": "strong_buy", "lstm": "mild_buy", "lgbm": "strong_buy"},
+                 "price": 10.0, "km": "strong_buy", "lstm": "mild_buy",
+                 "lgbm": "strong_buy", "ppo": "mild_buy"},
             ],
         }
         print_consensus(result, "Test Label")
@@ -268,7 +274,7 @@ class TestPrintHelpers:
         assert "Agreement" in captured.out
 
     def test_print_tuning_table_no_crash(self, capsys):
-        from re_tain import _print_tuning_table
+        from daily_pipeline import _print_tuning_table
 
         results = {
             "km_orig": {"total_return": 10.0, "sharpe_ratio": 0.5, "max_drawdown": -20.0,
@@ -280,13 +286,20 @@ class TestPrintHelpers:
                           "win_rate": 52.0, "num_trades": 80, "final_value": 108_000},
             "lgbm_tuned": {"total_return": 9.0, "sharpe_ratio": 0.45, "max_drawdown": -20.0,
                            "win_rate": 53.0, "num_trades": 85, "final_value": 109_000},
+            "ppo_orig": {"total_return": 7.0, "sharpe_ratio": 0.35, "max_drawdown": -21.0,
+                         "win_rate": 51.0, "num_trades": 70, "final_value": 107_000},
+            "ppo_tuned": {"total_return": 8.5, "sharpe_ratio": 0.42, "max_drawdown": -19.5,
+                          "win_rate": 52.5, "num_trades": 75, "final_value": 108_500},
         }
         best_params = {
             "km": {"n_clusters": 6, "feature_subset": "drop_roc"},
             "lgbm": {"n_estimators": 100, "max_depth": 5, "learning_rate": 0.1},
+            "ppo": {"total_timesteps": 100_000, "learning_rate": 3e-4,
+                    "ent_coef": 0.01, "n_steps": 2048},
         }
         _print_tuning_table(results, "Tuning Test", best_params)
         captured = capsys.readouterr()
         assert "Tuning Test" in captured.out
         assert "KM Orig" in captured.out
         assert "LGBM Tuned" in captured.out
+        assert "PPO Orig" in captured.out

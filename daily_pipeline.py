@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Re-download latest data, train all models, tune hyperparameters, and run
-consensus strategy across all tickers.
+"""Daily pipeline: download latest data, train all models, tune hyperparameters,
+and run consensus strategy across all tickers.
 
 Usage:
-    python re_tain.py              # run all tickers
-    python re_tain.py --skip-tune  # skip tuning (faster, ~1 min vs ~10 min)
+    python daily_pipeline.py              # run all tickers
+    python daily_pipeline.py --skip-tune  # skip tuning (faster, ~1 min vs ~10 min)
 """
 
 import argparse
@@ -25,7 +25,8 @@ from trading_bot import (
 )
 from dnn_trading_bot import DNNTradingBot, run_dnn_backtest
 from lgbm_trading_bot import LGBMTradingBot, run_lgbm_backtest
-from tune_hyperparams import tune_kmeans, tune_lgbm, tune_lstm
+from ppo_trading_bot import PPOTradingBot, run_ppo_backtest
+from tune_hyperparams import tune_kmeans, tune_lgbm, tune_lstm, tune_ppo
 
 
 # ---------------------------------------------------------------------------
@@ -33,7 +34,6 @@ from tune_hyperparams import tune_kmeans, tune_lgbm, tune_lstm
 # ---------------------------------------------------------------------------
 TICKERS = [
     {"symbol": "601933", "start": "20160101", "csv": "601933_10yr.csv",    "capital": 100_000, "label": "601933 Yonghui"},
-    {"symbol": "000001", "start": "20060101", "csv": "000001_20yr.csv",    "capital": 100_000, "label": "000001 Ping An Bank"},
     {"symbol": "000001.SH", "start": "20060101", "csv": "000001SH_20yr.csv", "capital": 1_000_000, "label": "000001.SH Shanghai Composite"},
 ]
 
@@ -52,25 +52,25 @@ def _last_trading_day() -> str:
 
 def _print_comparison_table(results: dict, title: str):
     """Print a comparison table from a results dict."""
-    print(f"\n{'=' * 76}")
+    print(f"\n{'=' * 90}")
     print(title)
-    print("=" * 76)
+    print("=" * 90)
 
-    header = f"  {'Metric':<22s} {'K-Means':>12s} {'LSTM':>12s} {'LightGBM':>12s} {'Buy&Hold':>12s}"
+    header = f"  {'Metric':<22s} {'K-Means':>12s} {'LSTM':>12s} {'LightGBM':>12s} {'PPO':>12s} {'Buy&Hold':>12s}"
     print(header)
-    print("  " + "-" * 74)
+    print("  " + "-" * 88)
 
-    km, lstm, lgbm = results["km"], results["lstm"], results["lgbm"]
+    km, lstm, lgbm, ppo = results["km"], results["lstm"], results["lgbm"], results["ppo"]
     bh = km["buy_and_hold_return"]
 
     rows = [
-        ("Total Return",   f"{km['total_return']:+.2f}%",  f"{lstm['total_return']:+.2f}%",  f"{lgbm['total_return']:+.2f}%",  f"{bh:+.2f}%"),
-        ("Sharpe Ratio",   f"{km['sharpe_ratio']:.3f}",    f"{lstm['sharpe_ratio']:.3f}",    f"{lgbm['sharpe_ratio']:.3f}",    "N/A"),
-        ("Max Drawdown",   f"{km['max_drawdown']:.2f}%",   f"{lstm['max_drawdown']:.2f}%",   f"{lgbm['max_drawdown']:.2f}%",   "N/A"),
-        ("Win Rate",       f"{km['win_rate']:.1f}%",       f"{lstm['win_rate']:.1f}%",       f"{lgbm['win_rate']:.1f}%",       "N/A"),
-        ("Profit Factor",  f"{km['profit_factor']:.2f}",   f"{lstm['profit_factor']:.2f}",   f"{lgbm['profit_factor']:.2f}",   "N/A"),
-        ("Num Trades",     f"{km['num_trades']}",          f"{lstm['num_trades']}",          f"{lgbm['num_trades']}",          "1"),
-        ("Final Value",    f"{km['final_value']:,.0f}",    f"{lstm['final_value']:,.0f}",    f"{lgbm['final_value']:,.0f}",    "N/A"),
+        ("Total Return",   f"{km['total_return']:+.2f}%",  f"{lstm['total_return']:+.2f}%",  f"{lgbm['total_return']:+.2f}%",  f"{ppo['total_return']:+.2f}%",  f"{bh:+.2f}%"),
+        ("Sharpe Ratio",   f"{km['sharpe_ratio']:.3f}",    f"{lstm['sharpe_ratio']:.3f}",    f"{lgbm['sharpe_ratio']:.3f}",    f"{ppo['sharpe_ratio']:.3f}",    "N/A"),
+        ("Max Drawdown",   f"{km['max_drawdown']:.2f}%",   f"{lstm['max_drawdown']:.2f}%",   f"{lgbm['max_drawdown']:.2f}%",   f"{ppo['max_drawdown']:.2f}%",   "N/A"),
+        ("Win Rate",       f"{km['win_rate']:.1f}%",       f"{lstm['win_rate']:.1f}%",       f"{lgbm['win_rate']:.1f}%",       f"{ppo['win_rate']:.1f}%",       "N/A"),
+        ("Profit Factor",  f"{km['profit_factor']:.2f}",   f"{lstm['profit_factor']:.2f}",   f"{lgbm['profit_factor']:.2f}",   f"{ppo['profit_factor']:.2f}",   "N/A"),
+        ("Num Trades",     f"{km['num_trades']}",          f"{lstm['num_trades']}",          f"{lgbm['num_trades']}",          f"{ppo['num_trades']}",          "1"),
+        ("Final Value",    f"{km['final_value']:,.0f}",    f"{lstm['final_value']:,.0f}",    f"{lgbm['final_value']:,.0f}",    f"{ppo['final_value']:,.0f}",    "N/A"),
     ]
     for label, *vals in rows:
         print(f"  {label:<22s}" + "".join(f" {v:>12s}" for v in vals))
@@ -78,36 +78,44 @@ def _print_comparison_table(results: dict, title: str):
 
 def _print_tuning_table(results: dict, title: str, best_params: dict):
     """Print tuned vs original comparison."""
-    print(f"\n{'=' * 104}")
+    print(f"\n{'=' * 134}")
     print(title)
-    print("=" * 104)
+    print("=" * 134)
 
     header = (
         f"  {'Metric':<20s}"
         f"  {'KM Orig':>12s}  {'KM Tuned':>12s}"
         f"  {'LGBM Orig':>12s}  {'LGBM Tuned':>12s}"
+        f"  {'PPO Orig':>12s}  {'PPO Tuned':>12s}"
         f"  {'Buy&Hold':>10s}"
     )
     print(header)
-    print("  " + "-" * 102)
+    print("  " + "-" * 132)
 
     km_o, km_t = results["km_orig"], results["km_tuned"]
     lg_o, lg_t = results["lgbm_orig"], results["lgbm_tuned"]
+    pp_o, pp_t = results["ppo_orig"], results["ppo_tuned"]
     bh = km_o["buy_and_hold_return"]
 
     rows = [
         ("Total Return",  f"{km_o['total_return']:+.2f}%", f"{km_t['total_return']:+.2f}%",
-         f"{lg_o['total_return']:+.2f}%", f"{lg_t['total_return']:+.2f}%", f"{bh:+.2f}%"),
+         f"{lg_o['total_return']:+.2f}%", f"{lg_t['total_return']:+.2f}%",
+         f"{pp_o['total_return']:+.2f}%", f"{pp_t['total_return']:+.2f}%", f"{bh:+.2f}%"),
         ("Sharpe Ratio",  f"{km_o['sharpe_ratio']:.3f}", f"{km_t['sharpe_ratio']:.3f}",
-         f"{lg_o['sharpe_ratio']:.3f}", f"{lg_t['sharpe_ratio']:.3f}", "N/A"),
+         f"{lg_o['sharpe_ratio']:.3f}", f"{lg_t['sharpe_ratio']:.3f}",
+         f"{pp_o['sharpe_ratio']:.3f}", f"{pp_t['sharpe_ratio']:.3f}", "N/A"),
         ("Max Drawdown",  f"{km_o['max_drawdown']:.2f}%", f"{km_t['max_drawdown']:.2f}%",
-         f"{lg_o['max_drawdown']:.2f}%", f"{lg_t['max_drawdown']:.2f}%", "N/A"),
+         f"{lg_o['max_drawdown']:.2f}%", f"{lg_t['max_drawdown']:.2f}%",
+         f"{pp_o['max_drawdown']:.2f}%", f"{pp_t['max_drawdown']:.2f}%", "N/A"),
         ("Win Rate",      f"{km_o['win_rate']:.1f}%", f"{km_t['win_rate']:.1f}%",
-         f"{lg_o['win_rate']:.1f}%", f"{lg_t['win_rate']:.1f}%", "N/A"),
+         f"{lg_o['win_rate']:.1f}%", f"{lg_t['win_rate']:.1f}%",
+         f"{pp_o['win_rate']:.1f}%", f"{pp_t['win_rate']:.1f}%", "N/A"),
         ("Num Trades",    f"{km_o['num_trades']}", f"{km_t['num_trades']}",
-         f"{lg_o['num_trades']}", f"{lg_t['num_trades']}", "1"),
+         f"{lg_o['num_trades']}", f"{lg_t['num_trades']}",
+         f"{pp_o['num_trades']}", f"{pp_t['num_trades']}", "1"),
         ("Final Value",   f"{km_o['final_value']:,.0f}", f"{km_t['final_value']:,.0f}",
-         f"{lg_o['final_value']:,.0f}", f"{lg_t['final_value']:,.0f}", "N/A"),
+         f"{lg_o['final_value']:,.0f}", f"{lg_t['final_value']:,.0f}",
+         f"{pp_o['final_value']:,.0f}", f"{pp_t['final_value']:,.0f}", "N/A"),
     ]
     for label, *vals in rows:
         print(f"  {label:<20s}" + "".join(f"  {v:>12s}" for v in vals))
@@ -116,6 +124,10 @@ def _print_tuning_table(results: dict, title: str, best_params: dict):
           f"features={best_params['km'].get('feature_subset', 'all_6')}")
     print(f"  Best LightGBM: n_est={best_params['lgbm']['n_estimators']}, "
           f"md={best_params['lgbm']['max_depth']}, lr={best_params['lgbm']['learning_rate']}")
+    if "ppo" in best_params:
+        print(f"  Best PPO:      ts={best_params['ppo']['total_timesteps']}, "
+              f"lr={best_params['ppo']['learning_rate']}, "
+              f"ent={best_params['ppo']['ent_coef']}, ns={best_params['ppo']['n_steps']}")
 
 
 # ---------------------------------------------------------------------------
@@ -141,7 +153,7 @@ def download_all(end_date: str):
 # Train all models
 # ---------------------------------------------------------------------------
 def train_all(ticker: dict) -> dict:
-    """Run all 3 backtests for a ticker. Returns results dict."""
+    """Run all 4 backtests for a ticker. Returns results dict."""
     csv, cap, label = ticker["csv"], ticker["capital"], ticker["label"]
     df = pd.read_csv(csv)
 
@@ -159,14 +171,17 @@ def train_all(ticker: dict) -> dict:
     lgbm = run_lgbm_backtest(df, train_ratio=0.6, initial_capital=cap)
     print(f"  LightGBM: return={lgbm['total_return']:+.2f}%  sharpe={lgbm['sharpe_ratio']:.3f}  trades={lgbm['num_trades']}")
 
-    return {"km": km, "lstm": lstm, "lgbm": lgbm, "df": df, "capital": cap}
+    ppo = run_ppo_backtest(df, train_ratio=0.6, initial_capital=cap)
+    print(f"  PPO:      return={ppo['total_return']:+.2f}%  sharpe={ppo['sharpe_ratio']:.3f}  trades={ppo['num_trades']}")
+
+    return {"km": km, "lstm": lstm, "lgbm": lgbm, "ppo": ppo, "df": df, "capital": cap}
 
 
 # ---------------------------------------------------------------------------
 # Tune hyperparameters (K-Means + LightGBM only — LSTM too slow for routine use)
 # ---------------------------------------------------------------------------
 def tune_all(ticker: dict) -> dict:
-    """Tune K-Means and LightGBM for a ticker."""
+    """Tune K-Means, LightGBM, and PPO for a ticker."""
     csv, cap, label = ticker["csv"], ticker["capital"], ticker["label"]
     df = pd.read_csv(csv)
 
@@ -186,6 +201,14 @@ def tune_all(ticker: dict) -> dict:
     print(f"  Best LightGBM: n_est={best_lgbm['n_estimators']}, md={best_lgbm['max_depth']}, "
           f"lr={best_lgbm['learning_rate']}  val_sharpe={lgbm_results[0]['sharpe_ratio']:.3f}")
 
+    # Tune PPO
+    ppo_results = tune_ppo(df, train_ratio=0.6, top_k=3, initial_capital=cap)
+    best_ppo = ppo_results[0]["params"] if ppo_results else {}
+    if best_ppo:
+        print(f"  Best PPO: ts={best_ppo['total_timesteps']}, lr={best_ppo['learning_rate']}, "
+              f"ent={best_ppo['ent_coef']}, ns={best_ppo['n_steps']}"
+              f"  val_sharpe={ppo_results[0]['sharpe_ratio']:.3f}")
+
     # Final eval: original vs tuned on test set
     km_orig = run_backtest(df, train_ratio=0.6, initial_capital=cap)
     km_tuned = run_backtest(df, train_ratio=0.6, initial_capital=cap,
@@ -196,11 +219,21 @@ def tune_all(ticker: dict) -> dict:
                                     n_estimators=best_lgbm["n_estimators"],
                                     max_depth=best_lgbm["max_depth"],
                                     learning_rate=best_lgbm["learning_rate"])
+    ppo_orig = run_ppo_backtest(df, train_ratio=0.6, initial_capital=cap)
+    if best_ppo:
+        ppo_tuned = run_ppo_backtest(df, train_ratio=0.6, initial_capital=cap,
+                                      total_timesteps=best_ppo["total_timesteps"],
+                                      learning_rate=best_ppo["learning_rate"],
+                                      ent_coef=best_ppo["ent_coef"],
+                                      n_steps=best_ppo["n_steps"])
+    else:
+        ppo_tuned = ppo_orig
 
     return {
         "km_orig": km_orig, "km_tuned": km_tuned,
         "lgbm_orig": lgbm_orig, "lgbm_tuned": lgbm_tuned,
-        "best_params": {"km": best_km, "lgbm": best_lgbm},
+        "ppo_orig": ppo_orig, "ppo_tuned": ppo_tuned,
+        "best_params": {"km": best_km, "lgbm": best_lgbm, "ppo": best_ppo},
     }
 
 
@@ -208,7 +241,7 @@ def tune_all(ticker: dict) -> dict:
 # Consensus strategy
 # ---------------------------------------------------------------------------
 def run_consensus(ticker: dict) -> dict:
-    """Run consensus strategy where all 3 models must agree."""
+    """Run consensus strategy where all 4 models must agree."""
     csv, cap, label = ticker["csv"], ticker["capital"], ticker["label"]
     df_raw = pd.read_csv(csv)
 
@@ -218,7 +251,7 @@ def run_consensus(ticker: dict) -> dict:
     train_df = df.iloc[:split].copy().reset_index(drop=True)
     test_df = df.iloc[split:].copy().reset_index(drop=True)
 
-    # Train all 3 models
+    # Train all 4 models
     km_bot = TradingBot(n_clusters=5)
     km_bot.fit(train_df)
     km_signals = km_bot.predict(test_df)
@@ -237,6 +270,10 @@ def run_consensus(ticker: dict) -> dict:
     lgbm_bot.fit(train_df)
     lgbm_signals = lgbm_bot.predict(test_df)
 
+    ppo_bot = PPOTradingBot()
+    ppo_bot.fit(train_df)
+    ppo_signals = ppo_bot.predict(test_df)
+
     def classify(signal):
         if signal in ("strong_buy", "mild_buy"):
             return "buy"
@@ -254,10 +291,12 @@ def run_consensus(ticker: dict) -> dict:
         km_sig = km_signals[i]
         lstm_sig = lstm_signal_map.get(i, "hold")
         lgbm_sig = lgbm_signals[i]
+        ppo_sig = ppo_signals[i]
 
         km_dir = classify(km_sig)
         lstm_dir = classify(lstm_sig)
         lgbm_dir = classify(lgbm_sig)
+        ppo_dir = classify(ppo_sig)
 
         exec_price = test_df.loc[i + 1, "open"]
         trade_date = str(test_df.loc[i + 1, "date"])
@@ -266,18 +305,18 @@ def run_consensus(ticker: dict) -> dict:
         shares_traded = 0
         action = "hold"
 
-        if km_dir == lstm_dir == lgbm_dir:
+        if km_dir == lstm_dir == lgbm_dir == ppo_dir:
             if km_dir == "buy":
                 agree_buy += 1
                 if price_below_sma5:
-                    strong = any(s == "strong_buy" for s in [km_sig, lstm_sig, lgbm_sig])
+                    strong = any(s == "strong_buy" for s in [km_sig, lstm_sig, lgbm_sig, ppo_sig])
                     frac = 1.0 if strong else 0.5
                     shares_traded = portfolio.buy(exec_price, fraction=frac, trade_date=trade_date)
                     if shares_traded > 0:
                         action = "buy"
             elif km_dir == "sell":
                 agree_sell += 1
-                strong = any(s == "strong_sell" for s in [km_sig, lstm_sig, lgbm_sig])
+                strong = any(s == "strong_sell" for s in [km_sig, lstm_sig, lgbm_sig, ppo_sig])
                 frac = 1.0 if strong else 0.5
                 shares_traded = portfolio.sell(exec_price, fraction=frac, trade_date=trade_date)
                 if shares_traded > 0:
@@ -290,7 +329,8 @@ def run_consensus(ticker: dict) -> dict:
         if shares_traded > 0:
             trades.append({
                 "date": trade_date, "action": action, "price": exec_price,
-                "shares": shares_traded, "km": km_sig, "lstm": lstm_sig, "lgbm": lgbm_sig,
+                "shares": shares_traded, "km": km_sig, "lstm": lstm_sig,
+                "lgbm": lgbm_sig, "ppo": ppo_sig,
             })
 
         daily_values.append(portfolio.value(test_df.loc[i + 1, "close"]))
@@ -373,7 +413,7 @@ def print_consensus(result: dict, label: str):
         print(f"\n  Recent consensus trades (last 10):")
         for t in trades[-10:]:
             print(f"    {t['date']}  {t['action']:4s}  {t['shares']:>6d} @ {t['price']:.2f}"
-                  f"  [km={t['km']}, lstm={t['lstm']}, lgbm={t['lgbm']}]")
+                  f"  [km={t['km']}, lstm={t['lstm']}, lgbm={t['lgbm']}, ppo={t['ppo']}]")
 
 
 # ---------------------------------------------------------------------------
@@ -434,6 +474,10 @@ def main():
         lgbm_bot.fit(df)
         lgbm_sig = lgbm_bot.predict_single(df.iloc[-1])
 
+        ppo_bot = PPOTradingBot()
+        ppo_bot.fit(df)
+        ppo_sig = ppo_bot.predict_single(df.iloc[-1])
+
         latest = df.iloc[-1]
         date = latest["date"]
         close = latest["close"]
@@ -447,11 +491,14 @@ def main():
 
         km_dir = classify(km_sig)
         lgbm_dir = classify(lgbm_sig)
-        consensus = km_dir if km_dir == lgbm_dir else "NO CONSENSUS"
+        ppo_dir = classify(ppo_sig)
+        dirs = [km_dir, lgbm_dir, ppo_dir]
+        consensus = dirs[0] if all(d == dirs[0] for d in dirs) else "NO CONSENSUS"
 
         print(f"\n  {label} ({date}, close={close:.2f}):")
         print(f"    K-Means:  {km_sig:<14s} -> {km_dir}")
         print(f"    LightGBM: {lgbm_sig:<14s} -> {lgbm_dir}")
+        print(f"    PPO:      {ppo_sig:<14s} -> {ppo_dir}")
         print(f"    Consensus: {consensus}")
 
     elapsed = time.time() - t_start

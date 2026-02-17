@@ -66,6 +66,21 @@ class TestGridContents:
         for lr in LGBM_GRID["learning_rate"]:
             assert isinstance(lr, float) and lr > 0
 
+    def test_ppo_grid_has_valid_keys(self):
+        from tune_hyperparams import PPO_GRID
+        assert "total_timesteps" in PPO_GRID
+        assert "learning_rate" in PPO_GRID
+        assert "ent_coef" in PPO_GRID
+        assert "n_steps" in PPO_GRID
+        for ts in PPO_GRID["total_timesteps"]:
+            assert isinstance(ts, int) and ts > 0
+        for lr in PPO_GRID["learning_rate"]:
+            assert isinstance(lr, float) and lr > 0
+        for ent in PPO_GRID["ent_coef"]:
+            assert isinstance(ent, float) and ent >= 0
+        for ns in PPO_GRID["n_steps"]:
+            assert isinstance(ns, int) and ns > 0
+
 
 # ---------------------------------------------------------------------------
 # Validation split tests

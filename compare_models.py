@@ -14,10 +14,11 @@ from trading_bot import (
 )
 from dnn_trading_bot import run_dnn_backtest
 from lgbm_trading_bot import run_lgbm_backtest
+from ppo_trading_bot import run_ppo_backtest
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Compare K-Means vs LSTM vs LightGBM")
+    parser = argparse.ArgumentParser(description="Compare K-Means vs LSTM vs LightGBM vs PPO")
     parser.add_argument("--csv", default="601933_10yr.csv", help="Input CSV")
     parser.add_argument("--output", default="trade_log.csv", help="Output trade log")
     args = parser.parse_args()
@@ -49,63 +50,79 @@ def main():
         df, train_ratio=0.6, initial_capital=100_000,
     )
 
+    # --- PPO backtest ---
+    print(f"\n{'=' * 60}")
+    print("PPO BACKTEST")
+    print("=" * 60)
+    ppo_results = run_ppo_backtest(
+        df, train_ratio=0.6, initial_capital=100_000,
+    )
+
     # --- Comparison table ---
-    print(f"\n{'=' * 72}")
+    print(f"\n{'=' * 86}")
     print("COMPARISON (with SMA5 buy filter)")
-    print("=" * 72)
+    print("=" * 86)
 
     bh_return = km_results["buy_and_hold_return"]
     header = (
         f"  {'Metric':<22s} {'K-Means':>12s} {'LSTM':>12s}"
-        f" {'LightGBM':>12s} {'Buy&Hold':>12s}"
+        f" {'LightGBM':>12s} {'PPO':>12s} {'Buy&Hold':>12s}"
     )
     print(header)
-    print("  " + "-" * 70)
+    print("  " + "-" * 84)
 
     rows = [
         ("Total Return",
          f"{km_results['total_return']:+.2f}%",
          f"{lstm_results['total_return']:+.2f}%",
          f"{lgbm_results['total_return']:+.2f}%",
+         f"{ppo_results['total_return']:+.2f}%",
          f"{bh_return:+.2f}%"),
         ("Max Drawdown",
          f"{km_results['max_drawdown']:.2f}%",
          f"{lstm_results['max_drawdown']:.2f}%",
          f"{lgbm_results['max_drawdown']:.2f}%",
+         f"{ppo_results['max_drawdown']:.2f}%",
          "N/A"),
         ("Sharpe Ratio",
          f"{km_results['sharpe_ratio']:.3f}",
          f"{lstm_results['sharpe_ratio']:.3f}",
          f"{lgbm_results['sharpe_ratio']:.3f}",
+         f"{ppo_results['sharpe_ratio']:.3f}",
          "N/A"),
         ("Win Rate",
          f"{km_results['win_rate']:.1f}%",
          f"{lstm_results['win_rate']:.1f}%",
          f"{lgbm_results['win_rate']:.1f}%",
+         f"{ppo_results['win_rate']:.1f}%",
          "N/A"),
         ("Profit Factor",
          f"{km_results['profit_factor']:.2f}",
          f"{lstm_results['profit_factor']:.2f}",
          f"{lgbm_results['profit_factor']:.2f}",
+         f"{ppo_results['profit_factor']:.2f}",
          "N/A"),
         ("Num Trades",
          f"{km_results['num_trades']}",
          f"{lstm_results['num_trades']}",
          f"{lgbm_results['num_trades']}",
+         f"{ppo_results['num_trades']}",
          "1"),
         ("Final Value",
          f"{km_results['final_value']:,.0f}",
          f"{lstm_results['final_value']:,.0f}",
          f"{lgbm_results['final_value']:,.0f}",
+         f"{ppo_results['final_value']:,.0f}",
          "N/A"),
     ]
-    for label, km_v, ls_v, lg_v, bh_v in rows:
-        print(f"  {label:<22s} {km_v:>12s} {ls_v:>12s} {lg_v:>12s} {bh_v:>12s}")
+    for label, km_v, ls_v, lg_v, pp_v, bh_v in rows:
+        print(f"  {label:<22s} {km_v:>12s} {ls_v:>12s} {lg_v:>12s} {pp_v:>12s} {bh_v:>12s}")
 
     # --- Build combined daily trade log ---
     km_test = km_results["test_df"].copy()
     lstm_test = lstm_results["test_df"].copy()
     lgbm_test = lgbm_results["test_df"].copy()
+    ppo_test = ppo_results["test_df"].copy()
 
     # Reconstruct LSTM signals on the test set
     lstm_bot = lstm_results["bot"]
@@ -121,6 +138,10 @@ def main():
     lgbm_bot = lgbm_results["bot"]
     lgbm_raw_signals = lgbm_bot.predict(lgbm_test)
 
+    # Reconstruct PPO signals on the test set (one signal per row, like K-Means)
+    ppo_bot = ppo_results["bot"]
+    ppo_raw_signals = ppo_bot.predict(ppo_test)
+
     # Build trade lookup: date -> trade dict
     def _trade_lookup(trades):
         lookup = {}
@@ -131,6 +152,7 @@ def main():
     km_trades = _trade_lookup(km_results["trades"])
     lstm_trades = _trade_lookup(lstm_results["trades"])
     lgbm_trades = _trade_lookup(lgbm_results["trades"])
+    ppo_trades = _trade_lookup(ppo_results["trades"])
 
     log_rows = []
     for i in range(len(km_test)):
@@ -154,6 +176,11 @@ def main():
         lgbm_action = lgbm_t.get("action", "hold")
         lgbm_shares = lgbm_t.get("shares", 0)
 
+        ppo_signal = ppo_raw_signals[i] if i < len(ppo_raw_signals) else "hold"
+        ppo_t = ppo_trades.get(date, {})
+        ppo_action = ppo_t.get("action", "hold")
+        ppo_shares = ppo_t.get("shares", 0)
+
         log_rows.append({
             "date": date,
             "open": round(open_, 2),
@@ -168,6 +195,9 @@ def main():
             "lgbm_signal": lgbm_signal,
             "lgbm_action": lgbm_action,
             "lgbm_shares": lgbm_shares if lgbm_shares else "",
+            "ppo_signal": ppo_signal,
+            "ppo_action": ppo_action,
+            "ppo_shares": ppo_shares if ppo_shares else "",
         })
 
     log_df = pd.DataFrame(log_rows)
@@ -180,13 +210,16 @@ def main():
     lstm_sells = len([r for r in log_rows if r["lstm_action"] == "sell"])
     lgbm_buys = len([r for r in log_rows if r["lgbm_action"] == "buy"])
     lgbm_sells = len([r for r in log_rows if r["lgbm_action"] == "sell"])
+    ppo_buys = len([r for r in log_rows if r["ppo_action"] == "buy"])
+    ppo_sells = len([r for r in log_rows if r["ppo_action"] == "sell"])
 
-    print(f"\n{'=' * 72}")
+    print(f"\n{'=' * 86}")
     print("TRADE LOG SUMMARY")
-    print("=" * 72)
+    print("=" * 86)
     print(f"  K-Means:   {km_buys} buys, {km_sells} sells")
     print(f"  LSTM:      {lstm_buys} buys, {lstm_sells} sells")
     print(f"  LightGBM:  {lgbm_buys} buys, {lgbm_sells} sells")
+    print(f"  PPO:       {ppo_buys} buys, {ppo_sells} sells")
     print(f"\n  Saved {len(log_df)} rows to {args.output}")
 
 
