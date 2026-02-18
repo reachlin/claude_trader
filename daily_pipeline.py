@@ -26,6 +26,7 @@ from trading_bot import (
 from dnn_trading_bot import DNNTradingBot, run_dnn_backtest
 from lgbm_trading_bot import LGBMTradingBot, run_lgbm_backtest
 from ppo_trading_bot import PPOTradingBot, run_ppo_backtest
+from td3_trading_bot import run_td3_backtest
 from tune_hyperparams import tune_kmeans, tune_lgbm, tune_lstm, tune_ppo
 from compare_models import run_majority_backtest
 
@@ -53,27 +54,28 @@ def _last_trading_day() -> str:
 
 def _print_comparison_table(results: dict, title: str):
     """Print a comparison table from a results dict."""
-    print(f"\n{'=' * 104}")
+    print(f"\n{'=' * 117}")
     print(title)
-    print("=" * 104)
+    print("=" * 117)
 
     km, lstm, lgbm, ppo = results["km"], results["lstm"], results["lgbm"], results["ppo"]
     uv = results["majority"]
+    td3 = results["td3"]
     bh = km["buy_and_hold_return"]
 
     header = (f"  {'Metric':<22s} {'K-Means':>12s} {'LSTM':>12s} {'LightGBM':>12s}"
-              f" {'PPO':>12s} {'Majority':>12s} {'Buy&Hold':>12s}")
+              f" {'PPO':>12s} {'Majority':>12s} {'TD3':>12s} {'Buy&Hold':>12s}")
     print(header)
-    print("  " + "-" * 102)
+    print("  " + "-" * 115)
 
     rows = [
-        ("Total Return",   f"{km['total_return']:+.2f}%",  f"{lstm['total_return']:+.2f}%",  f"{lgbm['total_return']:+.2f}%",  f"{ppo['total_return']:+.2f}%",  f"{uv['total_return']:+.2f}%",  f"{bh:+.2f}%"),
-        ("Sharpe Ratio",   f"{km['sharpe_ratio']:.3f}",    f"{lstm['sharpe_ratio']:.3f}",    f"{lgbm['sharpe_ratio']:.3f}",    f"{ppo['sharpe_ratio']:.3f}",    f"{uv['sharpe_ratio']:.3f}",    "N/A"),
-        ("Max Drawdown",   f"{km['max_drawdown']:.2f}%",   f"{lstm['max_drawdown']:.2f}%",   f"{lgbm['max_drawdown']:.2f}%",   f"{ppo['max_drawdown']:.2f}%",   f"{uv['max_drawdown']:.2f}%",   "N/A"),
-        ("Win Rate",       f"{km['win_rate']:.1f}%",       f"{lstm['win_rate']:.1f}%",       f"{lgbm['win_rate']:.1f}%",       f"{ppo['win_rate']:.1f}%",       f"{uv['win_rate']:.1f}%",       "N/A"),
-        ("Profit Factor",  f"{km['profit_factor']:.2f}",   f"{lstm['profit_factor']:.2f}",   f"{lgbm['profit_factor']:.2f}",   f"{ppo['profit_factor']:.2f}",   f"{uv['profit_factor']:.2f}",   "N/A"),
-        ("Num Trades",     f"{km['num_trades']}",          f"{lstm['num_trades']}",          f"{lgbm['num_trades']}",          f"{ppo['num_trades']}",          f"{uv['num_trades']}",          "1"),
-        ("Final Value",    f"{km['final_value']:,.0f}",    f"{lstm['final_value']:,.0f}",    f"{lgbm['final_value']:,.0f}",    f"{ppo['final_value']:,.0f}",    f"{uv['final_value']:,.0f}",    "N/A"),
+        ("Total Return",   f"{km['total_return']:+.2f}%",  f"{lstm['total_return']:+.2f}%",  f"{lgbm['total_return']:+.2f}%",  f"{ppo['total_return']:+.2f}%",  f"{uv['total_return']:+.2f}%",  f"{td3['total_return']:+.2f}%",  f"{bh:+.2f}%"),
+        ("Sharpe Ratio",   f"{km['sharpe_ratio']:.3f}",    f"{lstm['sharpe_ratio']:.3f}",    f"{lgbm['sharpe_ratio']:.3f}",    f"{ppo['sharpe_ratio']:.3f}",    f"{uv['sharpe_ratio']:.3f}",    f"{td3['sharpe_ratio']:.3f}",    "N/A"),
+        ("Max Drawdown",   f"{km['max_drawdown']:.2f}%",   f"{lstm['max_drawdown']:.2f}%",   f"{lgbm['max_drawdown']:.2f}%",   f"{ppo['max_drawdown']:.2f}%",   f"{uv['max_drawdown']:.2f}%",   f"{td3['max_drawdown']:.2f}%",   "N/A"),
+        ("Win Rate",       f"{km['win_rate']:.1f}%",       f"{lstm['win_rate']:.1f}%",       f"{lgbm['win_rate']:.1f}%",       f"{ppo['win_rate']:.1f}%",       f"{uv['win_rate']:.1f}%",       f"{td3['win_rate']:.1f}%",       "N/A"),
+        ("Profit Factor",  f"{km['profit_factor']:.2f}",   f"{lstm['profit_factor']:.2f}",   f"{lgbm['profit_factor']:.2f}",   f"{ppo['profit_factor']:.2f}",   f"{uv['profit_factor']:.2f}",   f"{td3['profit_factor']:.2f}",   "N/A"),
+        ("Num Trades",     f"{km['num_trades']}",          f"{lstm['num_trades']}",          f"{lgbm['num_trades']}",          f"{ppo['num_trades']}",          f"{uv['num_trades']}",          f"{td3['num_trades']}",          "1"),
+        ("Final Value",    f"{km['final_value']:,.0f}",    f"{lstm['final_value']:,.0f}",    f"{lgbm['final_value']:,.0f}",    f"{ppo['final_value']:,.0f}",    f"{uv['final_value']:,.0f}",    f"{td3['final_value']:,.0f}",    "N/A"),
     ]
     for label, *vals in rows:
         print(f"  {label:<22s}" + "".join(f" {v:>12s}" for v in vals))
@@ -180,7 +182,10 @@ def train_all(ticker: dict) -> dict:
     uv = run_majority_backtest(km, lstm, lgbm, ppo, initial_capital=cap)
     print(f"  Majority:  return={uv['total_return']:+.2f}%  sharpe={uv['sharpe_ratio']:.3f}  trades={uv['num_trades']}")
 
-    return {"km": km, "lstm": lstm, "lgbm": lgbm, "ppo": ppo, "majority": uv, "df": df, "capital": cap}
+    td3 = run_td3_backtest(df, train_ratio=0.6, initial_capital=cap)
+    print(f"  TD3:       return={td3['total_return']:+.2f}%  sharpe={td3['sharpe_ratio']:.3f}  trades={td3['num_trades']}")
+
+    return {"km": km, "lstm": lstm, "lgbm": lgbm, "ppo": ppo, "majority": uv, "td3": td3, "df": df, "capital": cap}
 
 
 # ---------------------------------------------------------------------------
@@ -467,6 +472,7 @@ def main():
     print("=" * 76)
 
     for ticker in TICKERS:
+        symbol = ticker["symbol"]
         csv, label = ticker["csv"], ticker["label"]
         df_raw = pd.read_csv(csv)
         df = compute_indicators(df_raw).dropna(subset=FEATURE_COLS).reset_index(drop=True)
@@ -484,6 +490,13 @@ def main():
         ppo_bot.fit(df)
         ppo_sig = ppo_bot.predict_single(df.iloc[-1])
 
+        # TD3: use the pre-trained bot from train_all(); the test_df already
+        # has all 4 base model signal columns baked in for the test period.
+        td3_results = all_results[symbol]["td3"]
+        td3_bot = td3_results["bot"]
+        td3_last_row = td3_results["test_df"].iloc[-1]
+        td3_sig = td3_bot.predict_single(td3_last_row)
+
         latest = df.iloc[-1]
         date = latest["date"]
         close = latest["close"]
@@ -498,13 +511,15 @@ def main():
         km_dir = classify(km_sig)
         lgbm_dir = classify(lgbm_sig)
         ppo_dir = classify(ppo_sig)
-        dirs = [km_dir, lgbm_dir, ppo_dir]
+        td3_dir = classify(td3_sig)
+        dirs = [km_dir, lgbm_dir, ppo_dir, td3_dir]
         consensus = dirs[0] if all(d == dirs[0] for d in dirs) else "NO CONSENSUS"
 
         print(f"\n  {label} ({date}, close={close:.2f}):")
         print(f"    K-Means:  {km_sig:<14s} -> {km_dir}")
         print(f"    LightGBM: {lgbm_sig:<14s} -> {lgbm_dir}")
         print(f"    PPO:      {ppo_sig:<14s} -> {ppo_dir}")
+        print(f"    TD3:      {td3_sig:<14s} -> {td3_dir}")
         print(f"    Consensus: {consensus}")
 
     elapsed = time.time() - t_start

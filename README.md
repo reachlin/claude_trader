@@ -1,8 +1,8 @@
 # Claude Trader
 
-Trading signal bots for China A-shares. Four ML models — unsupervised K-Means clustering, supervised LSTM, LightGBM gradient-boosted trees, and PPO reinforcement learning — generate daily signals (strong\_buy, mild\_buy, hold, mild\_sell, strong\_sell) from technical indicators, then simulate trades with realistic A-share constraints (T+1, 100-share lots, commissions, stamp tax).
+Trading signal bots for China A-shares. Five ML models — unsupervised K-Means clustering, supervised LSTM, LightGBM gradient-boosted trees, PPO reinforcement learning, and TD3 meta-judge — generate daily signals (strong\_buy, mild\_buy, hold, mild\_sell, strong\_sell) from technical indicators, then simulate trades with realistic A-share constraints (T+1, 100-share lots, commissions, stamp tax).
 
-A **majority vote** ensemble strategy trades when >= 3 of 4 models agree on direction, combining the strengths of all models.
+A **majority vote** ensemble strategy trades when >= 3 of 4 base models agree on direction. A **TD3 meta-judge** uses Twin Delayed DDPG to learn directly from all four base model signals, treating them as additional inputs alongside market indicators.
 
 A hyperparameter tuning pipeline finds optimal configs via grid search with chronological inner validation. A daily pipeline downloads latest data, trains all models, and generates today's signals across multiple tickers.
 
@@ -15,7 +15,8 @@ claude_trader/
 ├── dnn_trading_bot.py          # LSTM neural network bot + backtest engine
 ├── lgbm_trading_bot.py         # LightGBM gradient-boosted tree bot + backtest
 ├── ppo_trading_bot.py          # PPO reinforcement learning bot + backtest
-├── compare_models.py           # 4-model comparison + majority vote + trade log
+├── td3_trading_bot.py          # TD3 meta-judge bot (learns from all 4 base signals)
+├── compare_models.py           # 5-model comparison + majority vote + TD3 + trade log
 ├── daily_pipeline.py           # Multi-ticker daily pipeline (download, train, tune, consensus)
 ├── tune_hyperparams.py         # Grid search hyperparameter tuning (all models)
 ├── test_fetch_china_stock.py   # Tests for data fetcher
@@ -23,6 +24,7 @@ claude_trader/
 ├── test_dnn_trading_bot.py     # Tests for LSTM bot (18 tests)
 ├── test_lgbm_trading_bot.py    # Tests for LightGBM bot (12 tests)
 ├── test_ppo_trading_bot.py     # Tests for PPO bot (13 tests)
+├── test_td3_trading_bot.py     # Tests for TD3 meta-judge (22 tests)
 ├── test_compare_models.py      # Tests for majority vote logic (17 tests)
 ├── test_tune_hyperparams.py    # Tests for tuning pipeline (24 tests)
 ├── 601933_10yr.csv             # 10-year price data (2016–2026, ~2400 rows)
@@ -78,10 +80,10 @@ python fetch_china_stock.py <SYMBOL> --start YYYYMMDD --end YYYYMMDD --csv outpu
 
 ```bash
 conda activate trader
-pytest test_trading_bot.py test_dnn_trading_bot.py test_lgbm_trading_bot.py test_ppo_trading_bot.py test_compare_models.py test_tune_hyperparams.py -v
+pytest test_trading_bot.py test_dnn_trading_bot.py test_lgbm_trading_bot.py test_ppo_trading_bot.py test_td3_trading_bot.py test_compare_models.py test_tune_hyperparams.py -v
 ```
 
-124 tests total — all should pass.
+146 tests total — all should pass.
 
 ### Run K-Means trading bot
 
@@ -119,13 +121,22 @@ python ppo_trading_bot.py --csv 601933_3yr.csv
 
 Trains a PPO reinforcement learning agent in a simulated trading environment, runs backtest, and prints today's signal.
 
+### Run TD3 meta-judge
+
+```bash
+python td3_trading_bot.py                      # uses 601933_10yr.csv
+python td3_trading_bot.py --csv 601933_3yr.csv
+```
+
+Trains all 4 base models (K-Means, LSTM, LightGBM, PPO) on the training set, augments the data with their signals, then trains a TD3 (Twin Delayed DDPG) agent that learns to judge and combine those signals. Runs backtest and prints today's signal.
+
 ### Compare all models
 
 ```bash
-python compare_models.py                       # 4-model + majority vote comparison + trade_log.csv
+python compare_models.py                       # all models + majority vote + TD3 + trade_log.csv
 ```
 
-Runs all four backtests plus the majority vote ensemble, prints a side-by-side comparison table, and saves a combined daily trade log with signals and actions for each model.
+Runs all five backtests (K-Means, LSTM, LightGBM, PPO, TD3) plus the majority vote ensemble, prints a side-by-side comparison table, and saves a combined daily trade log with signals and actions for each model.
 
 ### Run daily pipeline
 
@@ -134,7 +145,7 @@ python daily_pipeline.py                       # download, train, tune, consensu
 python daily_pipeline.py --skip-tune           # skip tuning (~2 min)
 ```
 
-End-to-end pipeline that downloads latest data for all tickers (601933 Yonghui, 000001.SH Shanghai Composite), trains all 4 models + majority vote, optionally tunes hyperparameters, runs consensus strategy, and generates today's signals.
+End-to-end pipeline that downloads latest data for all tickers (601933 Yonghui, 000001.SH Shanghai Composite), trains all 5 models (including TD3 meta-judge) + majority vote, optionally tunes hyperparameters, runs consensus strategy, and generates today's signals.
 
 ### Run hyperparameter tuning
 
@@ -199,6 +210,18 @@ Key advantage over LSTM: trains in seconds (vs minutes), works well with small t
 
 Key advantage: learns a trading _policy_ that considers portfolio state, not just market indicators.
 
+### TD3 Meta-Judge
+
+1. Train all 4 base models (K-Means, LSTM, LightGBM, PPO) on the 60% training set
+2. Generate their signals on both train and test sets (no lookahead — models never see test data)
+3. Augment each DataFrame with the 4 signal columns, encoding them as floats (`strong_sell=-1` → `strong_buy=+1`)
+4. Build a Gymnasium environment with observation = 4 signal floats + 6 scaled indicators + 4 portfolio state (14 dims total)
+5. Action space: continuous `Box(1,)` in `[-1, 1]`, discretised to 5 signal levels
+6. Train TD3 agent (Stable-Baselines3) with twin Q-networks and delayed policy updates
+7. Predict signal → execute trade at next day's open
+
+Key advantage: TD3 learns _when_ to trust (or override) each base model based on market context and portfolio state, going beyond a hard majority vote rule. Twin Q-networks and delayed actor updates make it more stable than PPO for continuous action spaces.
+
 ### Majority Vote Ensemble
 
 1. Run all 4 models independently to generate signals on the test set
@@ -228,30 +251,20 @@ Key advantage: filters out noise from individual models while being less restric
 
 ### 601933 Yonghui (10yr data, 100K capital)
 
-| Metric       | K-Means  | LSTM     | LightGBM | PPO      | Majority | Buy & Hold |
-|--------------|----------|----------|----------|----------|----------|------------|
-| Total Return | +51.65%  | +48.47%  | +1.76%   | +7.36%   | **+80.29%** | +11.65% |
-| Sharpe Ratio | 0.510    | 0.458    | 0.138    | 0.224    | **0.597**   | —       |
-| Max Drawdown | -38.85%  | -52.65%  | **-35.37%** | -47.81% | -43.67%  | —       |
-| Win Rate     | 69.4%    | **76.9%** | 43.7%   | 65.6%    | 45.0%    | —       |
-| Profit Factor| **11.56** | 5.22    | 0.45     | 0.85     | 2.11     | —       |
-| Num Trades   | 152      | 32       | 367      | 65       | 42       | 1       |
-
-### 000001.SH Shanghai Composite (20yr data, 1M capital)
-
-| Metric       | K-Means  | LSTM     | LightGBM | PPO      | Majority | Buy & Hold |
-|--------------|----------|----------|----------|----------|----------|------------|
-| Total Return | -12.19%  | +17.84%  | +26.37%  | +28.92%  | **+28.24%** | +28.61% |
-| Sharpe Ratio | -0.104   | 0.300    | **0.503** | 0.287   | 0.325    | —       |
-| Max Drawdown | -33.49%  | -20.69%  | **-8.67%** | -25.78% | -27.82% | —       |
-| Win Rate     | 62.5%    | 0.0%     | 45.9%    | 0.0%     | **33.3%** | —       |
-| Num Trades   | 23       | 13       | 329      | 1        | 7        | 1       |
+| Metric       | K-Means  | LSTM      | LightGBM | PPO      | Majority    | TD3      | Buy & Hold |
+|--------------|----------|-----------|----------|----------|-------------|----------|------------|
+| Total Return | +51.65%  | +160.81%  | +1.76%   | -29.08%  | **+113.90%**| +44.03%  | +11.65%    |
+| Sharpe Ratio | 0.510    | **1.380** | 0.138    | -0.086   | 0.807       | 0.444    | —          |
+| Max Drawdown | -38.85%  | -20.08%   | **-35.37%** | -54.08% | -30.00%  | -43.39%  | —          |
+| Win Rate     | **69.4%**| 38.5%     | 43.7%    | 39.2%    | 47.8%       | 37.1%    | —          |
+| Profit Factor| **11.56**| 0.35      | 0.45     | 1.25     | 3.31        | 1.11     | —          |
+| Num Trades   | 152      | 73        | 367      | 225      | 49          | 236      | 1          |
 
 ### Analysis
 
-- **Majority vote** is the top performer on 601933 at +80.29% return and 0.597 Sharpe — outperforming every individual model and Buy & Hold by 7x. By requiring >= 3 of 4 models to agree, it filters noise while keeping enough trades (42) to capture major moves.
-- **K-Means** is consistently strong with +51.65% on 601933 and the highest profit factor (11.56).
-- **LSTM** shows variable performance — strong on 601933 (+48.47%, 76.9% win rate) but moderate on the index.
-- **LightGBM** has the best drawdown control on both tickers (-35.37% and -8.67%) and the highest Sharpe on the index (0.503), making it the most conservative strategy.
-- **PPO** performs moderately, with +28.92% on the index nearly matching Buy & Hold.
-- On the Shanghai Composite, most models perform near Buy & Hold (+28.61%), suggesting the index is harder to beat than individual stocks.
+- **Majority vote (+113.90%, Sharpe 0.807)** is the best risk-adjusted strategy — requiring >= 3 of 4 models to agree filters noise while keeping enough trades (49) to capture major moves.
+- **LSTM** had a high-return run (+160.81%) but with only 13 buys vs 60 sells and a profit factor of 0.35, suggesting it got lucky on short timing rather than systematic edge.
+- **TD3 (+44.03%, Sharpe 0.444)** performs comparably to K-Means but trades more (236 times), paying more in transaction costs. TD3 has the advantage of being able to learn _when_ to trust each base model, but needs more training time to consistently outperform the naive majority vote.
+- **K-Means** is consistently strong with +51.65% and the highest profit factor (11.56).
+- **LightGBM** has the best max drawdown control (**-35.37%**), making it the most conservative strategy.
+- **PPO** struggled this run (-29.08%), showing high variance across runs.
