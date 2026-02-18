@@ -513,14 +513,19 @@ def main():
         ppo_dir = classify(ppo_sig)
         td3_dir = classify(td3_sig)
         dirs = [km_dir, lgbm_dir, ppo_dir, td3_dir]
-        consensus = dirs[0] if all(d == dirs[0] for d in dirs) else "NO CONSENSUS"
+
+        # Majority vote: >= 3 of 4 agree
+        from collections import Counter
+        counts = Counter(dirs)
+        majority = next((d for d, c in counts.items() if c >= 3), None)
+        verdict = majority if majority else "NO CONSENSUS"
 
         print(f"\n  {label} ({date}, close={close:.2f}):")
         print(f"    K-Means:  {km_sig:<14s} -> {km_dir}")
         print(f"    LightGBM: {lgbm_sig:<14s} -> {lgbm_dir}")
         print(f"    PPO:      {ppo_sig:<14s} -> {ppo_dir}")
         print(f"    TD3:      {td3_sig:<14s} -> {td3_dir}")
-        print(f"    Consensus: {consensus}")
+        print(f"    Majority vote (>= 3/4): {verdict}")
 
     elapsed = time.time() - t_start
     print(f"\n{'=' * 76}")
