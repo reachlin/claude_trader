@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Run K-Means, LSTM, and LightGBM backtests, compare results, and save a
-combined daily trading log with signals and actions for each model."""
+"""Run K-Means, LSTM, LightGBM, PPO, Majority Vote, and TD3 backtests,
+compare results, and save a combined daily trading log with signals and
+actions for each model."""
 
 import argparse
 
@@ -17,6 +18,7 @@ from trading_bot import (
 from dnn_trading_bot import run_dnn_backtest
 from lgbm_trading_bot import run_lgbm_backtest
 from ppo_trading_bot import run_ppo_backtest
+from td3_trading_bot import run_td3_backtest
 
 
 def _classify(signal):
@@ -188,18 +190,25 @@ def main():
     uv_results = run_majority_backtest(km_results, lstm_results, lgbm_results,
                                         ppo_results, initial_capital=100_000)
 
+    # --- TD3 meta-judge backtest ---
+    print(f"\n{'=' * 60}")
+    print("TD3 META-JUDGE BACKTEST")
+    print("=" * 60)
+    td3_results = run_td3_backtest(df, train_ratio=0.6, initial_capital=100_000)
+
     # --- Comparison table ---
-    print(f"\n{'=' * 100}")
+    print(f"\n{'=' * 115}")
     print("COMPARISON (with SMA5 buy filter)")
-    print("=" * 100)
+    print("=" * 115)
 
     bh_return = km_results["buy_and_hold_return"]
     header = (
         f"  {'Metric':<22s} {'K-Means':>12s} {'LSTM':>12s}"
-        f" {'LightGBM':>12s} {'PPO':>12s} {'Majority':>12s} {'Buy&Hold':>12s}"
+        f" {'LightGBM':>12s} {'PPO':>12s} {'Majority':>12s}"
+        f" {'TD3':>12s} {'Buy&Hold':>12s}"
     )
     print(header)
-    print("  " + "-" * 98)
+    print("  " + "-" * 113)
 
     rows = [
         ("Total Return",
@@ -208,6 +217,7 @@ def main():
          f"{lgbm_results['total_return']:+.2f}%",
          f"{ppo_results['total_return']:+.2f}%",
          f"{uv_results['total_return']:+.2f}%",
+         f"{td3_results['total_return']:+.2f}%",
          f"{bh_return:+.2f}%"),
         ("Max Drawdown",
          f"{km_results['max_drawdown']:.2f}%",
@@ -215,6 +225,7 @@ def main():
          f"{lgbm_results['max_drawdown']:.2f}%",
          f"{ppo_results['max_drawdown']:.2f}%",
          f"{uv_results['max_drawdown']:.2f}%",
+         f"{td3_results['max_drawdown']:.2f}%",
          "N/A"),
         ("Sharpe Ratio",
          f"{km_results['sharpe_ratio']:.3f}",
@@ -222,6 +233,7 @@ def main():
          f"{lgbm_results['sharpe_ratio']:.3f}",
          f"{ppo_results['sharpe_ratio']:.3f}",
          f"{uv_results['sharpe_ratio']:.3f}",
+         f"{td3_results['sharpe_ratio']:.3f}",
          "N/A"),
         ("Win Rate",
          f"{km_results['win_rate']:.1f}%",
@@ -229,6 +241,7 @@ def main():
          f"{lgbm_results['win_rate']:.1f}%",
          f"{ppo_results['win_rate']:.1f}%",
          f"{uv_results['win_rate']:.1f}%",
+         f"{td3_results['win_rate']:.1f}%",
          "N/A"),
         ("Profit Factor",
          f"{km_results['profit_factor']:.2f}",
@@ -236,6 +249,7 @@ def main():
          f"{lgbm_results['profit_factor']:.2f}",
          f"{ppo_results['profit_factor']:.2f}",
          f"{uv_results['profit_factor']:.2f}",
+         f"{td3_results['profit_factor']:.2f}",
          "N/A"),
         ("Num Trades",
          f"{km_results['num_trades']}",
@@ -243,6 +257,7 @@ def main():
          f"{lgbm_results['num_trades']}",
          f"{ppo_results['num_trades']}",
          f"{uv_results['num_trades']}",
+         f"{td3_results['num_trades']}",
          "1"),
         ("Final Value",
          f"{km_results['final_value']:,.0f}",
@@ -250,10 +265,12 @@ def main():
          f"{lgbm_results['final_value']:,.0f}",
          f"{ppo_results['final_value']:,.0f}",
          f"{uv_results['final_value']:,.0f}",
+         f"{td3_results['final_value']:,.0f}",
          "N/A"),
     ]
-    for label, km_v, ls_v, lg_v, pp_v, uv_v, bh_v in rows:
-        print(f"  {label:<22s} {km_v:>12s} {ls_v:>12s} {lg_v:>12s} {pp_v:>12s} {uv_v:>12s} {bh_v:>12s}")
+    for label, km_v, ls_v, lg_v, pp_v, uv_v, td_v, bh_v in rows:
+        print(f"  {label:<22s} {km_v:>12s} {ls_v:>12s} {lg_v:>12s}"
+              f" {pp_v:>12s} {uv_v:>12s} {td_v:>12s} {bh_v:>12s}")
 
     # --- Build combined daily trade log ---
     km_test = km_results["test_df"].copy()
@@ -291,6 +308,14 @@ def main():
     lgbm_trades = _trade_lookup(lgbm_results["trades"])
     ppo_trades = _trade_lookup(ppo_results["trades"])
     uv_trades = _trade_lookup(uv_results["trades"])
+    td3_trades = _trade_lookup(td3_results["trades"])
+
+    # TD3 test_df already has per-row signals from the meta-model
+    td3_test = td3_results["test_df"].copy()
+    td3_signal_by_date = {
+        str(td3_test.iloc[i]["date"]): td3_test.iloc[i].get("signal", "hold")
+        for i in range(len(td3_test))
+    }
 
     log_rows = []
     for i in range(len(km_test)):
@@ -327,6 +352,12 @@ def main():
         uv_action = uv_t.get("action", "hold")
         uv_shares = uv_t.get("shares", 0)
 
+        # TD3 meta-judge
+        td3_signal = td3_signal_by_date.get(date, "hold")
+        td3_t = td3_trades.get(date, {})
+        td3_action = td3_t.get("action", "hold")
+        td3_shares = td3_t.get("shares", 0)
+
         log_rows.append({
             "date": date,
             "open": round(open_, 2),
@@ -347,6 +378,9 @@ def main():
             "uv_signal": uv_signal,
             "uv_action": uv_action,
             "uv_shares": uv_shares if uv_shares else "",
+            "td3_signal": td3_signal,
+            "td3_action": td3_action,
+            "td3_shares": td3_shares if td3_shares else "",
         })
 
     log_df = pd.DataFrame(log_rows)
@@ -363,6 +397,8 @@ def main():
     ppo_sells = len([r for r in log_rows if r["ppo_action"] == "sell"])
     uv_buys = len([r for r in log_rows if r["uv_action"] == "buy"])
     uv_sells = len([r for r in log_rows if r["uv_action"] == "sell"])
+    td3_buys = len([r for r in log_rows if r["td3_action"] == "buy"])
+    td3_sells = len([r for r in log_rows if r["td3_action"] == "sell"])
 
     print(f"\n{'=' * 100}")
     print("TRADE LOG SUMMARY")
@@ -372,6 +408,7 @@ def main():
     print(f"  LightGBM:   {lgbm_buys} buys, {lgbm_sells} sells")
     print(f"  PPO:        {ppo_buys} buys, {ppo_sells} sells")
     print(f"  Majority:   {uv_buys} buys, {uv_sells} sells")
+    print(f"  TD3:        {td3_buys} buys, {td3_sells} sells")
     print(f"\n  Saved {len(log_df)} rows to {args.output}")
 
 
