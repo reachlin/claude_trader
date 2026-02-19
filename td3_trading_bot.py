@@ -538,7 +538,7 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(description="TD3 meta-judge trading bot backtest")
-    parser.add_argument("--csv", default="601933_10yr.csv", help="CSV file path")
+    parser.add_argument("--csv", default="data/601933_10yr.csv", help="CSV file path")
     args = parser.parse_args()
 
     df = pd.read_csv(args.csv)

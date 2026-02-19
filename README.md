@@ -10,7 +10,7 @@ A hyperparameter tuning pipeline finds optimal configs via grid search with chro
 
 ```
 claude_trader/
-├── fetch_china_stock.py        # Download daily OHLCV from akshare
+├── fetch_china_stock.py        # Download daily OHLCV from akshare (stocks, ETFs, indices)
 ├── trading_bot.py              # K-Means clustering bot + backtest engine
 ├── dnn_trading_bot.py          # LSTM neural network bot + backtest engine
 ├── lgbm_trading_bot.py         # LightGBM gradient-boosted tree bot + backtest
@@ -19,6 +19,8 @@ claude_trader/
 ├── compare_models.py           # 5-model comparison + majority vote + TD3 + trade log
 ├── daily_pipeline.py           # Multi-ticker daily pipeline (download, train, tune, consensus)
 ├── tune_hyperparams.py         # Grid search hyperparameter tuning (all models)
+├── bulk_train.py               # Batch training across many tickers from candidates list
+├── find_candidates.py          # Screen Shanghai A-shares for liquid/mid-cap candidates
 ├── test_fetch_china_stock.py   # Tests for data fetcher
 ├── test_trading_bot.py         # Tests for K-Means bot (37 tests)
 ├── test_dnn_trading_bot.py     # Tests for LSTM bot (18 tests)
@@ -27,8 +29,10 @@ claude_trader/
 ├── test_td3_trading_bot.py     # Tests for TD3 meta-judge (22 tests)
 ├── test_compare_models.py      # Tests for majority vote logic (17 tests)
 ├── test_tune_hyperparams.py    # Tests for tuning pipeline (24 tests)
-├── 601933_10yr.csv             # 10-year price data (2016–2026, ~2400 rows)
-├── 000001SH_20yr.csv           # 20-year Shanghai Composite index data
+├── data/                       # Price data CSVs (downloaded by pipeline)
+│   ├── 601933_10yr.csv         #   10-year Yonghui data (2016–2026, ~2400 rows)
+│   ├── 000001SH_20yr.csv       #   20-year Shanghai Composite index data
+│   └── <SYMBOL>_20yr.csv       #   auto-created by --ticker runs
 └── CLAUDE.md                   # AI assistant instructions
 ```
 
@@ -65,13 +69,16 @@ Required packages:
 
 ```bash
 conda activate trader
-python fetch_china_stock.py 601933 --start 20160101 --end 20251231 --csv 601933_10yr.csv
+python fetch_china_stock.py 601933 --start 20160101 --end 20251231 --csv data/601933_10yr.csv
 ```
 
-The 10yr CSV is already included in the repo. To fetch a different stock or date range:
+The 10yr CSV is already included in the repo under `data/`. To fetch a different stock, ETF, or index:
 
 ```bash
-python fetch_china_stock.py <SYMBOL> --start YYYYMMDD --end YYYYMMDD --csv output.csv
+python fetch_china_stock.py <SYMBOL> --start YYYYMMDD --end YYYYMMDD --csv data/output.csv
+# Examples:
+python fetch_china_stock.py 510210           # ETF (e.g. 510210 CSI A500 ETF)
+python fetch_china_stock.py 000001.SH        # Shanghai Composite index
 ```
 
 ## Usage
@@ -88,8 +95,8 @@ pytest test_trading_bot.py test_dnn_trading_bot.py test_lgbm_trading_bot.py test
 ### Run K-Means trading bot
 
 ```bash
-python trading_bot.py                          # uses 601933_10yr.csv
-python trading_bot.py --csv 601933_3yr.csv     # use a different file
+python trading_bot.py                                    # uses data/601933_10yr.csv
+python trading_bot.py --csv data/601933_3yr.csv          # use a different file
 ```
 
 Outputs cluster analysis, backtest metrics, recent trades, and today's signal.
@@ -97,8 +104,8 @@ Outputs cluster analysis, backtest metrics, recent trades, and today's signal.
 ### Run LSTM trading bot
 
 ```bash
-python dnn_trading_bot.py                      # uses 601933_10yr.csv
-python dnn_trading_bot.py --csv 601933_3yr.csv
+python dnn_trading_bot.py                                # uses data/601933_10yr.csv
+python dnn_trading_bot.py --csv data/601933_3yr.csv
 ```
 
 Trains the LSTM, runs backtest, prints a comparison table vs K-Means baseline, and today's signal.
@@ -106,8 +113,8 @@ Trains the LSTM, runs backtest, prints a comparison table vs K-Means baseline, a
 ### Run LightGBM trading bot
 
 ```bash
-python lgbm_trading_bot.py                     # uses 601933_10yr.csv
-python lgbm_trading_bot.py --csv 601933_3yr.csv
+python lgbm_trading_bot.py                               # uses data/601933_10yr.csv
+python lgbm_trading_bot.py --csv data/601933_3yr.csv
 ```
 
 Trains a LightGBM classifier, runs backtest, prints feature importance, comparison vs K-Means, and today's signal.
@@ -115,8 +122,8 @@ Trains a LightGBM classifier, runs backtest, prints feature importance, comparis
 ### Run PPO trading bot
 
 ```bash
-python ppo_trading_bot.py                      # uses 601933_10yr.csv
-python ppo_trading_bot.py --csv 601933_3yr.csv
+python ppo_trading_bot.py                                # uses data/601933_10yr.csv
+python ppo_trading_bot.py --csv data/601933_3yr.csv
 ```
 
 Trains a PPO reinforcement learning agent in a simulated trading environment, runs backtest, and prints today's signal.
@@ -124,8 +131,8 @@ Trains a PPO reinforcement learning agent in a simulated trading environment, ru
 ### Run TD3 meta-judge
 
 ```bash
-python td3_trading_bot.py                      # uses 601933_10yr.csv
-python td3_trading_bot.py --csv 601933_3yr.csv
+python td3_trading_bot.py                                # uses data/601933_10yr.csv
+python td3_trading_bot.py --csv data/601933_3yr.csv
 ```
 
 Trains all 4 base models (K-Means, LSTM, LightGBM, PPO) on the training set, augments the data with their signals, then trains a TD3 (Twin Delayed DDPG) agent that learns to judge and combine those signals. Runs backtest and prints today's signal.
@@ -151,7 +158,7 @@ End-to-end pipeline that downloads latest data for all tickers (601933 Yonghui, 
 
 ```bash
 python tune_hyperparams.py                     # full tuning, ~3 min
-python tune_hyperparams.py --csv 601933_10yr.csv --output tuning_results.json
+python tune_hyperparams.py --csv data/601933_10yr.csv --output tuning_results.json
 ```
 
 This runs:

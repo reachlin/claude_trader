@@ -9,7 +9,10 @@ Usage:
 
 import argparse
 import time
+import warnings
 from datetime import datetime, timedelta
+
+warnings.filterwarnings("ignore", category=UserWarning, module="sklearn")
 
 import numpy as np
 import pandas as pd
@@ -35,8 +38,8 @@ from compare_models import run_majority_backtest
 # Config
 # ---------------------------------------------------------------------------
 TICKERS = [
-    {"symbol": "601933", "start": "20160101", "csv": "601933_10yr.csv",    "capital": 100_000, "label": "601933 Yonghui"},
-    {"symbol": "000001.SH", "start": "20060101", "csv": "000001SH_20yr.csv", "capital": 1_000_000, "label": "000001.SH Shanghai Composite"},
+    {"symbol": "601933", "start": "20160101", "csv": "data/601933_10yr.csv",    "capital": 100_000, "label": "601933 Yonghui"},
+    {"symbol": "000001.SH", "start": "20060101", "csv": "data/000001SH_20yr.csv", "capital": 1_000_000, "label": "000001.SH Shanghai Composite"},
 ]
 
 
@@ -433,17 +436,56 @@ def print_consensus(result: dict, label: str):
 def main():
     parser = argparse.ArgumentParser(description="Re-download, train, tune, and compare all models")
     parser.add_argument("--skip-tune", action="store_true", help="Skip hyperparameter tuning")
+    parser.add_argument(
+        "--ticker", metavar="SYMBOL",
+        help="Run on a single ticker (e.g. 002142). Downloads data to data/<SYMBOL>_20yr.csv. "
+             "If omitted, uses the hardcoded TICKERS list.",
+    )
+    parser.add_argument(
+        "--capital", type=int, default=100_000,
+        help="Initial capital when using --ticker (default: 100000)",
+    )
     args = parser.parse_args()
 
     t_start = time.time()
     end_date = _last_trading_day()
 
+    # Build the ticker list: custom symbol or hardcoded defaults
+    if args.ticker:
+        import os
+        sym = args.ticker
+        csv_path = os.path.join("data", f"{sym}_20yr.csv")
+        os.makedirs("data", exist_ok=True)
+        tickers = [{
+            "symbol": sym,
+            "start": "20040101",
+            "csv": csv_path,
+            "capital": args.capital,
+            "label": sym,
+        }]
+    else:
+        tickers = TICKERS
+
     # --- Step 1: Download ---
-    download_all(end_date)
+    if args.ticker:
+        # Download single ticker directly
+        print("=" * 76)
+        print(f"DOWNLOADING DATA (up to {end_date})")
+        print("=" * 76)
+        ticker = tickers[0]
+        try:
+            df = fetch_stock_daily(ticker["symbol"], start_date=ticker["start"], end_date=end_date)
+            df.to_csv(ticker["csv"], index=False)
+            print(f"  {ticker['label']:<35s}  {len(df):>5d} rows  "
+                  f"({df['date'].iloc[0]} to {df['date'].iloc[-1]})")
+        except Exception as e:
+            print(f"  {ticker['label']:<35s}  FAILED: {e}")
+    else:
+        download_all(end_date)
 
     # --- Step 2: Train all models on each ticker ---
     all_results = {}
-    for ticker in TICKERS:
+    for ticker in tickers:
         results = train_all(ticker)
         all_results[ticker["symbol"]] = results
         _print_comparison_table(results, f"RESULTS: {ticker['label']}")
@@ -451,7 +493,7 @@ def main():
     # --- Step 3: Tune hyperparameters ---
     tune_results = {}
     if not args.skip_tune:
-        for ticker in TICKERS:
+        for ticker in tickers:
             tr = tune_all(ticker)
             tune_results[ticker["symbol"]] = tr
             _print_tuning_table(tr, f"TUNING: {ticker['label']}", tr["best_params"])
@@ -461,7 +503,7 @@ def main():
         print("=" * 76)
 
     # --- Step 4: Consensus strategy on each ticker ---
-    for ticker in TICKERS:
+    for ticker in tickers:
         print(f"\nTraining consensus for {ticker['label']}...")
         cons = run_consensus(ticker)
         print_consensus(cons, ticker["label"])
@@ -471,7 +513,7 @@ def main():
     print("TODAY'S SIGNALS")
     print("=" * 76)
 
-    for ticker in TICKERS:
+    for ticker in tickers:
         symbol = ticker["symbol"]
         csv, label = ticker["csv"], ticker["label"]
         df_raw = pd.read_csv(csv)

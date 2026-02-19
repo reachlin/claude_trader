@@ -764,7 +764,7 @@ def print_comparison(eval_results: dict, best_km: dict, best_lstm: dict, best_lg
 # ---------------------------------------------------------------------------
 def main():
     parser = argparse.ArgumentParser(description="Hyperparameter tuning")
-    parser.add_argument("--csv", default="601933_10yr.csv", help="CSV file path")
+    parser.add_argument("--csv", default="data/601933_10yr.csv", help="CSV file path")
     parser.add_argument("--train-ratio", type=float, default=0.6)
     parser.add_argument("--output", default="tuning_results.json")
     args = parser.parse_args()

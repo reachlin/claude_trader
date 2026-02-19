@@ -236,7 +236,7 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(description="LightGBM trading bot backtest")
-    parser.add_argument("--csv", default="601933_10yr.csv", help="CSV file path")
+    parser.add_argument("--csv", default="data/601933_10yr.csv", help="CSV file path")
     args = parser.parse_args()
 
     csv_path = args.csv

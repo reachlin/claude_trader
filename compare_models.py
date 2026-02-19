@@ -144,7 +144,7 @@ def run_majority_backtest(km_results, lstm_results, lgbm_results, ppo_results,
 
 def main():
     parser = argparse.ArgumentParser(description="Compare K-Means vs LSTM vs LightGBM vs PPO")
-    parser.add_argument("--csv", default="601933_10yr.csv", help="Input CSV")
+    parser.add_argument("--csv", default="data/601933_10yr.csv", help="Input CSV")
     parser.add_argument("--output", default="trade_log.csv", help="Output trade log")
     args = parser.parse_args()
 

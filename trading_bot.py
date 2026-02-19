@@ -66,10 +66,13 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
         (low - close.shift(1)).abs(),
     ], axis=1).max(axis=1)
     atr14 = tr.ewm(span=14, min_periods=14, adjust=False).mean()
-    df["atr_ratio"] = atr14 / close
+    df["atr_ratio"] = atr14 / close.replace(0, np.nan)
 
     # 7. SMA(5) — 5-day simple moving average (used as buy filter, not a model feature)
     df["sma5"] = close.rolling(5).mean()
+
+    # Replace any inf values (e.g. from zero-price edge cases) with NaN
+    df.replace([np.inf, -np.inf], np.nan, inplace=True)
 
     return df
 
@@ -99,6 +102,8 @@ class Portfolio:
         Returns number of shares actually bought.
         """
         if fraction <= 0 or self.cash <= 0:
+            return 0
+        if not price or np.isnan(price) or price <= 0:
             return 0
 
         budget = self.cash * fraction
@@ -141,6 +146,8 @@ class Portfolio:
         Returns number of shares actually sold.
         """
         if fraction <= 0 or self.shares <= 0:
+            return 0
+        if not price or np.isnan(price) or price <= 0:
             return 0
 
         # T+1: exclude shares bought today
@@ -200,8 +207,13 @@ class TradingBot:
             names.append(canonical[idx])
         return names
 
-    def fit(self, df: pd.DataFrame):
-        """Fit K-Means on indicator features and label clusters by forward return."""
+    def fit(self, df: pd.DataFrame, min_cluster_fraction: float = 0.02):
+        """Fit K-Means on indicator features and label clusters by forward return.
+
+        Clusters with fewer than min_cluster_fraction of training rows are
+        considered degenerate outliers and their signals are downgraded to
+        "hold", preventing spurious buy/sell signals that won't generalise.
+        """
         features = df[self.feature_cols].values
         self.scaler.fit(features)
         X = self.scaler.transform(features)
@@ -211,11 +223,18 @@ class TradingBot:
 
         # Label clusters by average next-day return
         labels = self.kmeans.labels_
+        n_train = len(df)
         fwd_return = df["close"].pct_change().shift(-1).values
 
+        # Winsorize forward returns at the ±10% daily limit before ranking
+        # so that extreme adjustment/suspension events don't corrupt cluster labels
+        fwd_return = np.clip(fwd_return, -0.10, 0.10)
+
         cluster_returns = {}
+        cluster_sizes = {}
         for c in range(self.n_clusters):
             mask = labels == c
+            cluster_sizes[c] = int(mask.sum())
             returns_c = fwd_return[mask]
             returns_c = returns_c[~np.isnan(returns_c)]
             cluster_returns[c] = returns_c.mean() if len(returns_c) > 0 else 0.0
@@ -223,8 +242,15 @@ class TradingBot:
         # Rank clusters by average forward return
         sorted_clusters = sorted(cluster_returns.items(), key=lambda x: x[1])
         signal_names = self._assign_signal_names(self.n_clusters)
-        self.cluster_signals = {
+        raw_signals = {
             c: signal_names[i] for i, (c, _) in enumerate(sorted_clusters)
+        }
+
+        # Downgrade degenerate clusters (too few training samples) to "hold"
+        min_size = max(1, int(n_train * min_cluster_fraction))
+        self.cluster_signals = {
+            c: (sig if cluster_sizes[c] >= min_size else "hold")
+            for c, sig in raw_signals.items()
         }
 
     def predict(self, df: pd.DataFrame) -> list[str]:
@@ -379,7 +405,7 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(description="K-Means trading bot backtest")
-    parser.add_argument("--csv", default="601933_10yr.csv", help="CSV file path")
+    parser.add_argument("--csv", default="data/601933_10yr.csv", help="CSV file path")
     args = parser.parse_args()
 
     csv_path = args.csv

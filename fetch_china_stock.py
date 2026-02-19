@@ -54,18 +54,53 @@ def _fetch_index_daily(
     return df
 
 
+def _fetch_etf_daily(
+    symbol: str,
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> pd.DataFrame:
+    """Fetch daily OHLCV data for a China ETF."""
+    if end_date is None:
+        end_date = datetime.now().strftime("%Y%m%d")
+    if start_date is None:
+        start_date = (datetime.now() - timedelta(days=365)).strftime("%Y%m%d")
+
+    df = ak.fund_etf_hist_em(
+        symbol=symbol,
+        period="daily",
+        start_date=start_date,
+        end_date=end_date,
+        adjust="qfq",
+    )
+
+    column_map = {
+        "日期": "date",
+        "开盘": "open",
+        "收盘": "close",
+        "最高": "high",
+        "最低": "low",
+        "成交量": "volume",
+        "成交额": "amount",
+        "振幅": "amplitude",
+        "涨跌幅": "pct_change",
+        "涨跌额": "change",
+        "换手率": "turnover_rate",
+    }
+    df.rename(columns=column_map, inplace=True)
+    return df
+
+
 def fetch_stock_daily(
     symbol: str,
     start_date: str | None = None,
     end_date: str | None = None,
 ) -> pd.DataFrame:
-    """Fetch daily OHLCV data for a China A-share stock or index.
+    """Fetch daily OHLCV data for a China A-share stock, ETF, or index.
 
     Args:
         symbol: Stock ticker number, e.g. "000001" (Ping An Bank),
-                "600519" (Kweichow Moutai), or index with exchange suffix,
-                e.g. "000001.SH" (Shanghai Composite), "399001.SZ" (Shenzhen
-                Component).
+                "600519" (Kweichow Moutai), ETF e.g. "510210", or index with
+                exchange suffix e.g. "000001.SH" (Shanghai Composite).
         start_date: Start date in YYYYMMDD format. Defaults to 1 year ago.
         end_date: End date in YYYYMMDD format. Defaults to today.
 
@@ -88,6 +123,10 @@ def fetch_stock_daily(
         end_date=end_date,
         adjust="qfq",  # forward-adjusted prices
     )
+
+    # If empty, try ETF fetch
+    if df.empty:
+        return _fetch_etf_daily(symbol, start_date, end_date)
 
     # Rename columns from Chinese to English
     column_map = {
