@@ -1,0 +1,1255 @@
+[
+  {
+    "turn": 1,
+    "date": "2026-02-19 17:40",
+    "n_picked": 10,
+    "seed": null,
+    "stocks": [
+      {
+        "symbol": "603500",
+        "name": "祥和实业",
+        "rows": 2052,
+        "date_range": [
+          "2017-09-04",
+          "2026-02-13"
+        ],
+        "km": {
+          "total_return": 118.58458549999993,
+          "buy_and_hold_return": 47.96,
+          "sharpe_ratio": 0.9274155061893149,
+          "max_drawdown": -37.390132082485025,
+          "win_rate": 60.0,
+          "profit_factor": 0.6274508320153765,
+          "num_trades": 95,
+          "final_value": 218584.58549999993
+        },
+        "lstm": {
+          "total_return": 32.14665949999998,
+          "buy_and_hold_return": 47.96,
+          "sharpe_ratio": 0.5134830681507305,
+          "max_drawdown": -35.30882090900321,
+          "win_rate": 33.33333333333333,
+          "profit_factor": 0.1535789750519186,
+          "num_trades": 37,
+          "final_value": 132146.65949999998
+        },
+        "lgbm": {
+          "total_return": 48.27629275000008,
+          "buy_and_hold_return": 47.96,
+          "sharpe_ratio": 0.6663806194150868,
+          "max_drawdown": -34.1358647585333,
+          "win_rate": 67.2566371681416,
+          "profit_factor": 0.6007191942369643,
+          "num_trades": 270,
+          "final_value": 148276.29275000008
+        },
+        "ppo": {
+          "total_return": 94.1714395,
+          "buy_and_hold_return": 47.96,
+          "sharpe_ratio": 0.8201966544495849,
+          "max_drawdown": -40.93136205921903,
+          "win_rate": 66.66666666666666,
+          "profit_factor": 1.5283929196535926,
+          "num_trades": 50,
+          "final_value": 194171.4395
+        },
+        "majority": {
+          "total_return": 195.17380949999998,
+          "buy_and_hold_return": null,
+          "sharpe_ratio": 1.2395390803139377,
+          "max_drawdown": -42.67203719434161,
+          "win_rate": 76.92307692307693,
+          "profit_factor": 0.9106724716650196,
+          "num_trades": 29,
+          "final_value": 295173.8095
+        },
+        "td3": {
+          "total_return": 46.20447075000009,
+          "buy_and_hold_return": 47.96,
+          "sharpe_ratio": 0.6490466478772576,
+          "max_drawdown": -31.77326977142039,
+          "win_rate": 54.21686746987952,
+          "profit_factor": 2.735357261499253,
+          "num_trades": 170,
+          "final_value": 146204.4707500001
+        },
+        "km_tuned": {
+          "total_return": -0.16401425000006567,
+          "buy_and_hold_return": 47.96,
+          "sharpe_ratio": 0.12027886372979726,
+          "max_drawdown": -38.56512724419463,
+          "win_rate": 68.08510638297872,
+          "profit_factor": 6.217725815576088,
+          "num_trades": 192,
+          "final_value": 99835.98574999993
+        },
+        "lgbm_tuned": {
+          "total_return": 82.31360325000001,
+          "buy_and_hold_return": 47.96,
+          "sharpe_ratio": 0.9398472080419737,
+          "max_drawdown": -27.630477554233142,
+          "win_rate": 66.05504587155964,
+          "profit_factor": 0.4571539961013645,
+          "num_trades": 261,
+          "final_value": 182313.60325000001
+        },
+        "ppo_tuned": {
+          "total_return": 76.03880350000004,
+          "buy_and_hold_return": 47.96,
+          "sharpe_ratio": 0.7229306961178152,
+          "max_drawdown": -40.682233542708296,
+          "win_rate": 60.0,
+          "profit_factor": 1.292059493460848,
+          "num_trades": 146,
+          "final_value": 176038.80350000004
+        },
+        "best_params": {
+          "km": {
+            "n_clusters": 6,
+            "feature_subset": "drop_atr",
+            "feature_cols": [
+              "rsi",
+              "macd_hist",
+              "boll_pctb",
+              "vol_ratio",
+              "roc"
+            ]
+          },
+          "lgbm": {
+            "n_estimators": 100,
+            "max_depth": 3,
+            "learning_rate": 0.1
+          },
+          "ppo": {
+            "total_timesteps": 100000,
+            "learning_rate": 0.0003,
+            "ent_coef": 0.0,
+            "n_steps": 2048
+          }
+        },
+        "turn": 1
+      },
+      {
+        "symbol": "600248",
+        "name": "陕建股份",
+        "rows": 4703,
+        "date_range": [
+          "2004-01-02",
+          "2026-02-13"
+        ],
+        "km": {
+          "total_return": 62.2083015,
+          "buy_and_hold_return": -16.756000000000014,
+          "sharpe_ratio": 0.374501004402958,
+          "max_drawdown": -48.7258168877845,
+          "win_rate": 58.79396984924623,
+          "profit_factor": 1.155195692465874,
+          "num_trades": 471,
+          "final_value": 162208.3015
+        },
+        "lstm": {
+          "total_return": 73.57965550000016,
+          "buy_and_hold_return": -16.756000000000014,
+          "sharpe_ratio": 0.42634800980344506,
+          "max_drawdown": -38.11317945922742,
+          "win_rate": 63.272727272727266,
+          "profit_factor": 1.8073429185094727,
+          "num_trades": 584,
+          "final_value": 173579.65550000017
+        },
+        "lgbm": {
+          "total_return": 44.17002175000016,
+          "buy_and_hold_return": -16.756000000000014,
+          "sharpe_ratio": 0.33463380035668244,
+          "max_drawdown": -31.327114488449688,
+          "win_rate": 54.347826086956516,
+          "profit_factor": 1.3235502187470913,
+          "num_trades": 664,
+          "final_value": 144170.02175000016
+        },
+        "ppo": {
+          "total_return": 14.074023500000024,
+          "buy_and_hold_return": -16.756000000000014,
+          "sharpe_ratio": 0.2215515020609342,
+          "max_drawdown": -16.029172966405344,
+          "win_rate": 66.66666666666666,
+          "profit_factor": 2.1525648011208838,
+          "num_trades": 628,
+          "final_value": 114074.02350000002
+        },
+        "majority": {
+          "total_return": 83.125236,
+          "buy_and_hold_return": null,
+          "sharpe_ratio": 0.5371777700415564,
+          "max_drawdown": -27.98115755970701,
+          "win_rate": 65.38461538461539,
+          "profit_factor": 1.5054659221128837,
+          "num_trades": 248,
+          "final_value": 183125.236
+        },
+        "td3": {
+          "total_return": -30.34346025000014,
+          "buy_and_hold_return": -16.756000000000014,
+          "sharpe_ratio": -0.11056815128900728,
+          "max_drawdown": -44.92226829073447,
+          "win_rate": 44.32432432432433,
+          "profit_factor": 0.9711331221907362,
+          "num_trades": 371,
+          "final_value": 69656.53974999987
+        },
+        "km_tuned": {
+          "total_return": -13.753626999999993,
+          "buy_and_hold_return": -16.756000000000014,
+          "sharpe_ratio": 0.14058573980742148,
+          "max_drawdown": -54.56071444458708,
+          "win_rate": 0,
+          "profit_factor": Infinity,
+          "num_trades": 9,
+          "final_value": 86246.373
+        },
+        "lgbm_tuned": {
+          "total_return": -4.684457749999987,
+          "buy_and_hold_return": -16.756000000000014,
+          "sharpe_ratio": 0.09383443599361879,
+          "max_drawdown": -43.617466309636576,
+          "win_rate": 67.47404844290658,
+          "profit_factor": 2.7468660887293437,
+          "num_trades": 595,
+          "final_value": 95315.54225000001
+        },
+        "ppo_tuned": {
+          "total_return": 94.22074599999999,
+          "buy_and_hold_return": -16.756000000000014,
+          "sharpe_ratio": 0.4685140308524526,
+          "max_drawdown": -39.933535648006306,
+          "win_rate": 76.2589928057554,
+          "profit_factor": 8.817538532057531,
+          "num_trades": 493,
+          "final_value": 194220.74599999998
+        },
+        "best_params": {
+          "km": {
+            "n_clusters": 8,
+            "feature_subset": "all_6",
+            "feature_cols": [
+              "rsi",
+              "macd_hist",
+              "boll_pctb",
+              "vol_ratio",
+              "roc",
+              "atr_ratio"
+            ]
+          },
+          "lgbm": {
+            "n_estimators": 100,
+            "max_depth": 5,
+            "learning_rate": 0.05
+          },
+          "ppo": {
+            "total_timesteps": 50000,
+            "learning_rate": 0.001,
+            "ent_coef": 0.01,
+            "n_steps": 1024
+          }
+        },
+        "turn": 1
+      },
+      {
+        "symbol": "601117",
+        "name": "中国化学",
+        "rows": 3906,
+        "date_range": [
+          "2010-01-07",
+          "2026-02-13"
+        ],
+        "km": {
+          "total_return": -5.106308499999999,
+          "buy_and_hold_return": 80.50699999999999,
+          "sharpe_ratio": -0.0018876257698261056,
+          "max_drawdown": -29.91238645778442,
+          "win_rate": 52.459016393442624,
+          "profit_factor": 0.7029327510096741,
+          "num_trades": 160,
+          "final_value": 94893.6915
+        },
+        "lstm": {
+          "total_return": 34.46356999999995,
+          "buy_and_hold_return": 80.50699999999999,
+          "sharpe_ratio": 0.33487406385743435,
+          "max_drawdown": -42.8374915448612,
+          "win_rate": 30.76923076923077,
+          "profit_factor": 0.06978754209123512,
+          "num_trades": 61,
+          "final_value": 134463.56999999995
+        },
+        "lgbm": {
+          "total_return": 33.72833924999996,
+          "buy_and_hold_return": 80.50699999999999,
+          "sharpe_ratio": 0.3264068134139673,
+          "max_drawdown": -40.89102204153848,
+          "win_rate": 47.22222222222222,
+          "profit_factor": 0.5646130887300655,
+          "num_trades": 509,
+          "final_value": 133728.33924999996
+        },
+        "ppo": {
+          "total_return": 20.695653500000045,
+          "buy_and_hold_return": 80.50699999999999,
+          "sharpe_ratio": 0.24696429443349668,
+          "max_drawdown": -44.528801636442864,
+          "win_rate": 64.70588235294117,
+          "profit_factor": 1.2524466721712568,
+          "num_trades": 411,
+          "final_value": 120695.65350000004
+        },
+        "majority": {
+          "total_return": 50.31803349999987,
+          "buy_and_hold_return": null,
+          "sharpe_ratio": 0.4214508207975518,
+          "max_drawdown": -36.58223742695992,
+          "win_rate": 48.0,
+          "profit_factor": 3.2183353437876967,
+          "num_trades": 55,
+          "final_value": 150318.03349999987
+        },
+        "td3": {
+          "total_return": -15.96096849999999,
+          "buy_and_hold_return": 80.50699999999999,
+          "sharpe_ratio": -0.015322438616735748,
+          "max_drawdown": -54.96709780265972,
+          "win_rate": 51.5,
+          "profit_factor": 1.2186217479207275,
+          "num_trades": 407,
+          "final_value": 84039.03150000001
+        },
+        "km_tuned": {
+          "total_return": -6.004757249999937,
+          "buy_and_hold_return": 80.50699999999999,
+          "sharpe_ratio": -0.034874517909243764,
+          "max_drawdown": -25.82449323698591,
+          "win_rate": 29.268292682926827,
+          "profit_factor": 0.6377604449810872,
+          "num_trades": 114,
+          "final_value": 93995.24275000006
+        },
+        "lgbm_tuned": {
+          "total_return": -5.91555049999994,
+          "buy_and_hold_return": 80.50699999999999,
+          "sharpe_ratio": 0.0659843191708904,
+          "max_drawdown": -52.851847893480276,
+          "win_rate": 50.21645021645021,
+          "profit_factor": 0.36310761243684836,
+          "num_trades": 546,
+          "final_value": 94084.44950000006
+        },
+        "ppo_tuned": {
+          "total_return": 19.499124249999962,
+          "buy_and_hold_return": 80.50699999999999,
+          "sharpe_ratio": 0.2590742734252754,
+          "max_drawdown": -69.14506565189602,
+          "win_rate": 62.264150943396224,
+          "profit_factor": 2.5474079562584633,
+          "num_trades": 242,
+          "final_value": 119499.12424999996
+        },
+        "best_params": {
+          "km": {
+            "n_clusters": 8,
+            "feature_subset": "drop_roc",
+            "feature_cols": [
+              "rsi",
+              "macd_hist",
+              "boll_pctb",
+              "vol_ratio",
+              "atr_ratio"
+            ]
+          },
+          "lgbm": {
+            "n_estimators": 50,
+            "max_depth": 7,
+            "learning_rate": 0.05
+          },
+          "ppo": {
+            "total_timesteps": 100000,
+            "learning_rate": 0.001,
+            "ent_coef": 0.01,
+            "n_steps": 1024
+          }
+        },
+        "turn": 1
+      },
+      {
+        "symbol": "601398",
+        "name": "工商银行",
+        "rows": 4672,
+        "date_range": [
+          "2006-10-27",
+          "2026-02-13"
+        ],
+        "km": {
+          "total_return": 124.43899424999985,
+          "buy_and_hold_return": 161.113,
+          "sharpe_ratio": 0.8335765441276575,
+          "max_drawdown": -21.988183407440644,
+          "win_rate": 84.0,
+          "profit_factor": 17.97488460494162,
+          "num_trades": 533,
+          "final_value": 224438.99424999984
+        },
+        "lstm": {
+          "total_return": 0.0,
+          "buy_and_hold_return": 161.113,
+          "sharpe_ratio": 0.0,
+          "max_drawdown": 0.0,
+          "win_rate": 0,
+          "profit_factor": Infinity,
+          "num_trades": 0,
+          "final_value": 100000.0
+        },
+        "lgbm": {
+          "total_return": 128.62297925000004,
+          "buy_and_hold_return": 161.113,
+          "sharpe_ratio": 0.835055575300925,
+          "max_drawdown": -23.827666179177932,
+          "win_rate": 67.16417910447761,
+          "profit_factor": 15.348316268066384,
+          "num_trades": 231,
+          "final_value": 228622.97925000003
+        },
+        "ppo": {
+          "total_return": 191.93488549999987,
+          "buy_and_hold_return": 161.113,
+          "sharpe_ratio": 0.8166701818022346,
+          "max_drawdown": -25.94558195672186,
+          "win_rate": 50.0,
+          "profit_factor": 0.2154365635687671,
+          "num_trades": 152,
+          "final_value": 291934.88549999986
+        },
+        "majority": {
+          "total_return": 164.31991674999998,
+          "buy_and_hold_return": null,
+          "sharpe_ratio": 0.79529866680163,
+          "max_drawdown": -26.85004367945693,
+          "win_rate": 54.54545454545454,
+          "profit_factor": 0.24430173147885315,
+          "num_trades": 27,
+          "final_value": 264319.91675
+        },
+        "td3": {
+          "total_return": 44.82202074999997,
+          "buy_and_hold_return": 161.113,
+          "sharpe_ratio": 0.49562047261328185,
+          "max_drawdown": -17.443697358542025,
+          "win_rate": 35.526315789473685,
+          "profit_factor": 0.46572346666822206,
+          "num_trades": 156,
+          "final_value": 144822.02074999997
+        },
+        "km_tuned": {
+          "total_return": 186.0280669999999,
+          "buy_and_hold_return": 161.113,
+          "sharpe_ratio": 0.8630714897778587,
+          "max_drawdown": -22.868104574880785,
+          "win_rate": 76.92307692307693,
+          "profit_factor": 13.306086183918259,
+          "num_trades": 329,
+          "final_value": 286028.0669999999
+        },
+        "lgbm_tuned": {
+          "total_return": 125.54129725,
+          "buy_and_hold_return": 161.113,
+          "sharpe_ratio": 0.7816425622791594,
+          "max_drawdown": -23.1268836253739,
+          "win_rate": 74.19354838709677,
+          "profit_factor": 25.860501431421866,
+          "num_trades": 218,
+          "final_value": 225541.29725
+        },
+        "ppo_tuned": {
+          "total_return": 157.445022,
+          "buy_and_hold_return": 161.113,
+          "sharpe_ratio": 0.6812055961850404,
+          "max_drawdown": -27.34924615606565,
+          "win_rate": 0,
+          "profit_factor": Infinity,
+          "num_trades": 1,
+          "final_value": 257445.022
+        },
+        "best_params": {
+          "km": {
+            "n_clusters": 7,
+            "feature_subset": "all_6",
+            "feature_cols": [
+              "rsi",
+              "macd_hist",
+              "boll_pctb",
+              "vol_ratio",
+              "roc",
+              "atr_ratio"
+            ]
+          },
+          "lgbm": {
+            "n_estimators": 200,
+            "max_depth": 5,
+            "learning_rate": 0.05
+          },
+          "ppo": {
+            "total_timesteps": 50000,
+            "learning_rate": 0.0001,
+            "ent_coef": 0.05,
+            "n_steps": 1024
+          }
+        },
+        "turn": 1
+      },
+      {
+        "symbol": "601231",
+        "name": "环旭电子",
+        "rows": 3384,
+        "date_range": [
+          "2012-02-20",
+          "2026-02-13"
+        ],
+        "km": {
+          "total_return": 49.473850999999996,
+          "buy_and_hold_return": 60.021,
+          "sharpe_ratio": 0.7592811653381387,
+          "max_drawdown": -13.180083492511574,
+          "win_rate": 100.0,
+          "profit_factor": Infinity,
+          "num_trades": 55,
+          "final_value": 149473.851
+        },
+        "lstm": {
+          "total_return": -1.0225999999999913,
+          "buy_and_hold_return": 60.021,
+          "sharpe_ratio": -0.02873690270346082,
+          "max_drawdown": -8.63254395286792,
+          "win_rate": 0.0,
+          "profit_factor": 0.0,
+          "num_trades": 7,
+          "final_value": 98977.40000000001
+        },
+        "lgbm": {
+          "total_return": 104.55703974999997,
+          "buy_and_hold_return": 60.021,
+          "sharpe_ratio": 0.7984815583804968,
+          "max_drawdown": -21.028268244901273,
+          "win_rate": 42.857142857142854,
+          "profit_factor": 0.6379206204108928,
+          "num_trades": 355,
+          "final_value": 204557.03974999997
+        },
+        "ppo": {
+          "total_return": 81.68437174999997,
+          "buy_and_hold_return": 60.021,
+          "sharpe_ratio": 0.4841863798578718,
+          "max_drawdown": -52.30984505395253,
+          "win_rate": 45.1219512195122,
+          "profit_factor": 0.595934039914495,
+          "num_trades": 306,
+          "final_value": 181684.37174999996
+        },
+        "majority": {
+          "total_return": 37.074901249999996,
+          "buy_and_hold_return": null,
+          "sharpe_ratio": 0.5064066604849272,
+          "max_drawdown": -17.526240147381607,
+          "win_rate": 75.0,
+          "profit_factor": 47.904347826086884,
+          "num_trades": 48,
+          "final_value": 137074.90125
+        },
+        "td3": {
+          "total_return": 156.29255799999996,
+          "buy_and_hold_return": 60.021,
+          "sharpe_ratio": 0.8649631368783763,
+          "max_drawdown": -42.421777244373374,
+          "win_rate": 47.72727272727273,
+          "profit_factor": 1.7975107707036857,
+          "num_trades": 264,
+          "final_value": 256292.55799999996
+        },
+        "km_tuned": {
+          "total_return": 49.473850999999996,
+          "buy_and_hold_return": 60.021,
+          "sharpe_ratio": 0.7592811653381387,
+          "max_drawdown": -13.180083492511574,
+          "win_rate": 100.0,
+          "profit_factor": Infinity,
+          "num_trades": 55,
+          "final_value": 149473.851
+        },
+        "lgbm_tuned": {
+          "total_return": 95.83418200000011,
+          "buy_and_hold_return": 60.021,
+          "sharpe_ratio": 0.7609473253532518,
+          "max_drawdown": -20.82944386987904,
+          "win_rate": 43.51145038167939,
+          "profit_factor": 0.6565212129490835,
+          "num_trades": 392,
+          "final_value": 195834.18200000012
+        },
+        "ppo_tuned": {
+          "total_return": 170.94862474999996,
+          "buy_and_hold_return": 60.021,
+          "sharpe_ratio": 1.0122608615479927,
+          "max_drawdown": -16.549608979885857,
+          "win_rate": 32.55813953488372,
+          "profit_factor": 0.33873582252460843,
+          "num_trades": 100,
+          "final_value": 270948.62474999996
+        },
+        "best_params": {
+          "km": {
+            "n_clusters": 5,
+            "feature_subset": "all_6",
+            "feature_cols": [
+              "rsi",
+              "macd_hist",
+              "boll_pctb",
+              "vol_ratio",
+              "roc",
+              "atr_ratio"
+            ]
+          },
+          "lgbm": {
+            "n_estimators": 200,
+            "max_depth": 5,
+            "learning_rate": 0.1
+          },
+          "ppo": {
+            "total_timesteps": 50000,
+            "learning_rate": 0.001,
+            "ent_coef": 0.05,
+            "n_steps": 2048
+          }
+        },
+        "turn": 1
+      },
+      {
+        "symbol": "603860",
+        "name": "中公高科",
+        "rows": 2075,
+        "date_range": [
+          "2017-08-02",
+          "2026-02-13"
+        ],
+        "km": {
+          "total_return": 45.91179974999995,
+          "buy_and_hold_return": 69.30899999999997,
+          "sharpe_ratio": 0.6718900293595855,
+          "max_drawdown": -22.43693539557554,
+          "win_rate": 45.55555555555556,
+          "profit_factor": 0.32332205301748446,
+          "num_trades": 233,
+          "final_value": 145911.79974999995
+        },
+        "lstm": {
+          "total_return": -40.97323900000004,
+          "buy_and_hold_return": 69.30899999999997,
+          "sharpe_ratio": -0.4103355457985883,
+          "max_drawdown": -57.992405165079354,
+          "win_rate": 21.428571428571427,
+          "profit_factor": 0.2433556387282144,
+          "num_trades": 28,
+          "final_value": 59026.76099999996
+        },
+        "lgbm": {
+          "total_return": 84.69378700000007,
+          "buy_and_hold_return": 69.30899999999997,
+          "sharpe_ratio": 0.8149813966821436,
+          "max_drawdown": -25.062149794516202,
+          "win_rate": 56.03448275862068,
+          "profit_factor": 1.1764090558980722,
+          "num_trades": 247,
+          "final_value": 184693.78700000007
+        },
+        "ppo": {
+          "total_return": 253.35535424999983,
+          "buy_and_hold_return": 69.30899999999997,
+          "sharpe_ratio": 1.5998533484093094,
+          "max_drawdown": -14.6266739600699,
+          "win_rate": 100.0,
+          "profit_factor": Infinity,
+          "num_trades": 126,
+          "final_value": 353355.3542499998
+        },
+        "majority": {
+          "total_return": 21.118105499999963,
+          "buy_and_hold_return": null,
+          "sharpe_ratio": 0.35528980915318226,
+          "max_drawdown": -29.056903102998326,
+          "win_rate": 52.38095238095239,
+          "profit_factor": 0.9813937725758591,
+          "num_trades": 50,
+          "final_value": 121118.10549999996
+        },
+        "td3": {
+          "total_return": 54.70885974999986,
+          "buy_and_hold_return": 69.30899999999997,
+          "sharpe_ratio": 0.6171650280788794,
+          "max_drawdown": -24.56556290410497,
+          "win_rate": 53.92156862745098,
+          "profit_factor": 1.3543706635187807,
+          "num_trades": 206,
+          "final_value": 154708.85974999986
+        },
+        "km_tuned": {
+          "total_return": 43.10183425000002,
+          "buy_and_hold_return": 69.30899999999997,
+          "sharpe_ratio": 0.5712315310250652,
+          "max_drawdown": -24.29053189486921,
+          "win_rate": 47.24409448818898,
+          "profit_factor": 1.515537544522788,
+          "num_trades": 260,
+          "final_value": 143101.83425
+        },
+        "lgbm_tuned": {
+          "total_return": 38.918685000000174,
+          "buy_and_hold_return": 69.30899999999997,
+          "sharpe_ratio": 0.5022691158783599,
+          "max_drawdown": -24.166930548974037,
+          "win_rate": 54.47761194029851,
+          "profit_factor": 0.954268663987334,
+          "num_trades": 281,
+          "final_value": 138918.68500000017
+        },
+        "ppo_tuned": {
+          "total_return": 160.2374347499999,
+          "buy_and_hold_return": 69.30899999999997,
+          "sharpe_ratio": 1.1274129869240235,
+          "max_drawdown": -22.33845872497497,
+          "win_rate": 80.0,
+          "profit_factor": 1.5676863958917722,
+          "num_trades": 138,
+          "final_value": 260237.4347499999
+        },
+        "best_params": {
+          "km": {
+            "n_clusters": 7,
+            "feature_subset": "drop_roc",
+            "feature_cols": [
+              "rsi",
+              "macd_hist",
+              "boll_pctb",
+              "vol_ratio",
+              "atr_ratio"
+            ]
+          },
+          "lgbm": {
+            "n_estimators": 100,
+            "max_depth": 3,
+            "learning_rate": 0.05
+          },
+          "ppo": {
+            "total_timesteps": 200000,
+            "learning_rate": 0.0003,
+            "ent_coef": 0.01,
+            "n_steps": 2048
+          }
+        },
+        "turn": 1
+      },
+      {
+        "symbol": "603979",
+        "name": "金诚信",
+        "rows": 2586,
+        "date_range": [
+          "2015-06-30",
+          "2026-02-13"
+        ],
+        "km": {
+          "total_return": 271.87278499999974,
+          "buy_and_hold_return": 266.29999999999995,
+          "sharpe_ratio": 1.152811314724733,
+          "max_drawdown": -36.926625211268174,
+          "win_rate": 77.84810126582279,
+          "profit_factor": 6.918873891681256,
+          "num_trades": 323,
+          "final_value": 371872.78499999974
+        },
+        "lstm": {
+          "total_return": 94.78517900000011,
+          "buy_and_hold_return": 266.29999999999995,
+          "sharpe_ratio": 0.6853094596371831,
+          "max_drawdown": -24.9440125550015,
+          "win_rate": 15.0,
+          "profit_factor": 0.014355077702408224,
+          "num_trades": 89,
+          "final_value": 194785.17900000012
+        },
+        "lgbm": {
+          "total_return": 91.25804549999992,
+          "buy_and_hold_return": 266.29999999999995,
+          "sharpe_ratio": 0.7813953618538607,
+          "max_drawdown": -31.534008567655082,
+          "win_rate": 32.30769230769231,
+          "profit_factor": 0.20243561729442894,
+          "num_trades": 279,
+          "final_value": 191258.04549999992
+        },
+        "ppo": {
+          "total_return": 67.27075425000002,
+          "buy_and_hold_return": 266.29999999999995,
+          "sharpe_ratio": 0.8267342619486114,
+          "max_drawdown": -26.838708580820374,
+          "win_rate": 30.864197530864196,
+          "profit_factor": 0.12728005165846176,
+          "num_trades": 201,
+          "final_value": 167270.75425000003
+        },
+        "majority": {
+          "total_return": 154.42219349999988,
+          "buy_and_hold_return": null,
+          "sharpe_ratio": 0.9193450182628533,
+          "max_drawdown": -45.585173375605876,
+          "win_rate": 60.60606060606061,
+          "profit_factor": 0.4233605196297553,
+          "num_trades": 68,
+          "final_value": 254422.19349999988
+        },
+        "td3": {
+          "total_return": 167.19686024999982,
+          "buy_and_hold_return": 266.29999999999995,
+          "sharpe_ratio": 1.0634383588552654,
+          "max_drawdown": -32.940740640046116,
+          "win_rate": 57.89473684210527,
+          "profit_factor": 2.5416999835487935,
+          "num_trades": 268,
+          "final_value": 267196.8602499998
+        },
+        "km_tuned": {
+          "total_return": 267.19728849999996,
+          "buy_and_hold_return": 266.29999999999995,
+          "sharpe_ratio": 1.1543877956283322,
+          "max_drawdown": -35.02474642326942,
+          "win_rate": 89.47368421052632,
+          "profit_factor": 208.6377303588747,
+          "num_trades": 115,
+          "final_value": 367197.2884999999
+        },
+        "lgbm_tuned": {
+          "total_return": 127.35174025000009,
+          "buy_and_hold_return": 266.29999999999995,
+          "sharpe_ratio": 0.9791308725550425,
+          "max_drawdown": -28.642836531056652,
+          "win_rate": 26.785714285714285,
+          "profit_factor": 0.19975261744514436,
+          "num_trades": 242,
+          "final_value": 227351.7402500001
+        },
+        "ppo_tuned": {
+          "total_return": 92.17746974999993,
+          "buy_and_hold_return": 266.29999999999995,
+          "sharpe_ratio": 0.8729561175633181,
+          "max_drawdown": -30.731442169524293,
+          "win_rate": 20.833333333333336,
+          "profit_factor": 0.07638709285735967,
+          "num_trades": 257,
+          "final_value": 192177.46974999993
+        },
+        "best_params": {
+          "km": {
+            "n_clusters": 6,
+            "feature_subset": "all_6",
+            "feature_cols": [
+              "rsi",
+              "macd_hist",
+              "boll_pctb",
+              "vol_ratio",
+              "roc",
+              "atr_ratio"
+            ]
+          },
+          "lgbm": {
+            "n_estimators": 100,
+            "max_depth": 7,
+            "learning_rate": 0.01
+          },
+          "ppo": {
+            "total_timesteps": 50000,
+            "learning_rate": 0.001,
+            "ent_coef": 0.0,
+            "n_steps": 2048
+          }
+        },
+        "turn": 1
+      },
+      {
+        "symbol": "600760",
+        "name": "中航沈飞",
+        "rows": 5152,
+        "date_range": [
+          "2004-01-02",
+          "2026-02-13"
+        ],
+        "km": {
+          "total_return": -21.139360499999892,
+          "buy_and_hold_return": 295.289,
+          "sharpe_ratio": -0.027774685998050726,
+          "max_drawdown": -47.41349919433212,
+          "win_rate": 37.39495798319328,
+          "profit_factor": 0.2184476904810504,
+          "num_trades": 532,
+          "final_value": 78860.6395000001
+        },
+        "lstm": {
+          "total_return": 87.44367075000008,
+          "buy_and_hold_return": 295.289,
+          "sharpe_ratio": 0.3987181945711582,
+          "max_drawdown": -45.37294093788291,
+          "win_rate": 92.0,
+          "profit_factor": 115.21712484678696,
+          "num_trades": 82,
+          "final_value": 187443.67075000008
+        },
+        "lgbm": {
+          "total_return": 77.53662049999998,
+          "buy_and_hold_return": 295.289,
+          "sharpe_ratio": 0.4610209592443074,
+          "max_drawdown": -33.99694143671528,
+          "win_rate": 25.961538461538463,
+          "profit_factor": 0.1345000605014536,
+          "num_trades": 304,
+          "final_value": 177536.6205
+        },
+        "ppo": {
+          "total_return": 9.047878499999992,
+          "buy_and_hold_return": 295.289,
+          "sharpe_ratio": 0.17531846448990654,
+          "max_drawdown": -40.37147034546529,
+          "win_rate": 81.57894736842105,
+          "profit_factor": 52.355214142438335,
+          "num_trades": 315,
+          "final_value": 109047.87849999999
+        },
+        "majority": {
+          "total_return": -54.82569574999997,
+          "buy_and_hold_return": null,
+          "sharpe_ratio": -0.43333680816853726,
+          "max_drawdown": -63.3266678314486,
+          "win_rate": 76.0,
+          "profit_factor": 31.325231481481495,
+          "num_trades": 82,
+          "final_value": 45174.30425000003
+        },
+        "td3": {
+          "total_return": 30.91542100000006,
+          "buy_and_hold_return": 295.289,
+          "sharpe_ratio": 0.2805862651480125,
+          "max_drawdown": -70.84139215762649,
+          "win_rate": 40.18691588785047,
+          "profit_factor": 1.595509659476817,
+          "num_trades": 216,
+          "final_value": 130915.42100000006
+        },
+        "km_tuned": {
+          "total_return": -33.637170250000054,
+          "buy_and_hold_return": 295.289,
+          "sharpe_ratio": -0.05372081470885083,
+          "max_drawdown": -55.11030359711305,
+          "win_rate": 15.972222222222221,
+          "profit_factor": 0.07536616652719337,
+          "num_trades": 450,
+          "final_value": 66362.82974999995
+        },
+        "lgbm_tuned": {
+          "total_return": -11.057558000000048,
+          "buy_and_hold_return": 295.289,
+          "sharpe_ratio": -0.08577269613048898,
+          "max_drawdown": -22.082561537121535,
+          "win_rate": 14.285714285714285,
+          "profit_factor": 0.005621973743323484,
+          "num_trades": 50,
+          "final_value": 88942.44199999995
+        },
+        "ppo_tuned": {
+          "total_return": -19.417008499999998,
+          "buy_and_hold_return": 295.289,
+          "sharpe_ratio": 0.03439243281843309,
+          "max_drawdown": -55.7607745870378,
+          "win_rate": 27.439024390243905,
+          "profit_factor": 0.07363889505528151,
+          "num_trades": 428,
+          "final_value": 80582.9915
+        },
+        "best_params": {
+          "km": {
+            "n_clusters": 4,
+            "feature_subset": "drop_roc",
+            "feature_cols": [
+              "rsi",
+              "macd_hist",
+              "boll_pctb",
+              "vol_ratio",
+              "atr_ratio"
+            ]
+          },
+          "lgbm": {
+            "n_estimators": 200,
+            "max_depth": 3,
+            "learning_rate": 0.01
+          },
+          "ppo": {
+            "total_timesteps": 100000,
+            "learning_rate": 0.0001,
+            "ent_coef": 0.0,
+            "n_steps": 2048
+          }
+        },
+        "turn": 1
+      },
+      {
+        "symbol": "603098",
+        "name": "森特股份",
+        "rows": 2226,
+        "date_range": [
+          "2016-12-16",
+          "2026-02-13"
+        ],
+        "km": {
+          "total_return": 9.995601250000007,
+          "buy_and_hold_return": -54.752,
+          "sharpe_ratio": 0.2566538169205652,
+          "max_drawdown": -20.98649754345064,
+          "win_rate": 20.0,
+          "profit_factor": 0.42872863326241656,
+          "num_trades": 24,
+          "final_value": 109995.60125
+        },
+        "lstm": {
+          "total_return": -11.76263675000002,
+          "buy_and_hold_return": -54.752,
+          "sharpe_ratio": 0.026157479093536103,
+          "max_drawdown": -50.06007999618197,
+          "win_rate": 67.44186046511628,
+          "profit_factor": 1.8955128245006123,
+          "num_trades": 207,
+          "final_value": 88237.36324999998
+        },
+        "lgbm": {
+          "total_return": -27.584125499999995,
+          "buy_and_hold_return": -54.752,
+          "sharpe_ratio": -0.2397122087656338,
+          "max_drawdown": -65.72269642277162,
+          "win_rate": 40.28776978417266,
+          "profit_factor": 0.4312894104379915,
+          "num_trades": 287,
+          "final_value": 72415.8745
+        },
+        "ppo": {
+          "total_return": -2.364501500000013,
+          "buy_and_hold_return": -54.752,
+          "sharpe_ratio": 0.09228655651571811,
+          "max_drawdown": -36.510897500000006,
+          "win_rate": 73.33333333333333,
+          "profit_factor": 12.948127735451454,
+          "num_trades": 49,
+          "final_value": 97635.49849999999
+        },
+        "majority": {
+          "total_return": 18.174876500000043,
+          "buy_and_hold_return": null,
+          "sharpe_ratio": 0.31801053831551945,
+          "max_drawdown": -31.3186768629524,
+          "win_rate": 66.66666666666666,
+          "profit_factor": 1.7129302397049795,
+          "num_trades": 12,
+          "final_value": 118174.87650000004
+        },
+        "td3": {
+          "total_return": -49.66538249999997,
+          "buy_and_hold_return": -54.752,
+          "sharpe_ratio": -0.47733539231094146,
+          "max_drawdown": -73.27149091650986,
+          "win_rate": 57.333333333333336,
+          "profit_factor": 1.6122824079443963,
+          "num_trades": 153,
+          "final_value": 50334.61750000003
+        },
+        "km_tuned": {
+          "total_return": 21.62568650000001,
+          "buy_and_hold_return": -54.752,
+          "sharpe_ratio": 0.383381539534346,
+          "max_drawdown": -19.343312749999996,
+          "win_rate": 40.0,
+          "profit_factor": 2.3779134986912625,
+          "num_trades": 10,
+          "final_value": 121625.68650000001
+        },
+        "lgbm_tuned": {
+          "total_return": -6.43698949999988,
+          "buy_and_hold_return": -54.752,
+          "sharpe_ratio": 0.056547415677827055,
+          "max_drawdown": -52.15429166522679,
+          "win_rate": 38.655462184873954,
+          "profit_factor": 0.4734903802021684,
+          "num_trades": 255,
+          "final_value": 93563.01050000012
+        },
+        "ppo_tuned": {
+          "total_return": 3.161346750000012,
+          "buy_and_hold_return": -54.752,
+          "sharpe_ratio": 0.1547644770362942,
+          "max_drawdown": -35.66367174999999,
+          "win_rate": 80.0,
+          "profit_factor": 617.8884792626703,
+          "num_trades": 40,
+          "final_value": 103161.34675000001
+        },
+        "best_params": {
+          "km": {
+            "n_clusters": 3,
+            "feature_subset": "drop_vol",
+            "feature_cols": [
+              "rsi",
+              "macd_hist",
+              "boll_pctb",
+              "roc",
+              "atr_ratio"
+            ]
+          },
+          "lgbm": {
+            "n_estimators": 100,
+            "max_depth": 5,
+            "learning_rate": 0.01
+          },
+          "ppo": {
+            "total_timesteps": 100000,
+            "learning_rate": 0.0001,
+            "ent_coef": 0.0,
+            "n_steps": 2048
+          }
+        },
+        "turn": 1
+      },
+      {
+        "symbol": "601026",
+        "name": "道生天合",
+        "rows": 84,
+        "date_range": [
+          "2025-10-17",
+          "2026-02-13"
+        ],
+        "km": {
+          "total_return": -3.5286959999999965,
+          "buy_and_hold_return": -2.7360000000000144,
+          "sharpe_ratio": -2.5443867324520513,
+          "max_drawdown": -6.399923615443334,
+          "win_rate": 0,
+          "profit_factor": Infinity,
+          "num_trades": 3,
+          "final_value": 96471.304
+        },
+        "lstm": {
+          "total_return": 0.0,
+          "buy_and_hold_return": -2.7360000000000144,
+          "sharpe_ratio": 0.0,
+          "max_drawdown": 0.0,
+          "win_rate": 0,
+          "profit_factor": Infinity,
+          "num_trades": 0,
+          "final_value": 100000.0
+        },
+        "lgbm": {
+          "total_return": 0.0,
+          "buy_and_hold_return": -2.7360000000000144,
+          "sharpe_ratio": 0.0,
+          "max_drawdown": 0.0,
+          "win_rate": 0,
+          "profit_factor": Infinity,
+          "num_trades": 0,
+          "final_value": 100000.0
+        },
+        "ppo": {
+          "total_return": -4.344899999999994,
+          "buy_and_hold_return": -2.7360000000000144,
+          "sharpe_ratio": -2.6018685109222552,
+          "max_drawdown": -8.17740424202845,
+          "win_rate": 0,
+          "profit_factor": Infinity,
+          "num_trades": 1,
+          "final_value": 95655.1
+        },
+        "majority": {
+          "total_return": 0.0,
+          "buy_and_hold_return": null,
+          "sharpe_ratio": 0.0,
+          "max_drawdown": 0.0,
+          "win_rate": 0,
+          "profit_factor": Infinity,
+          "num_trades": 0,
+          "final_value": 100000.0
+        },
+        "td3": {
+          "total_return": -4.344899999999994,
+          "buy_and_hold_return": -2.7360000000000144,
+          "sharpe_ratio": -2.6018685109222552,
+          "max_drawdown": -8.17740424202845,
+          "win_rate": 0.0,
+          "profit_factor": Infinity,
+          "num_trades": 1,
+          "final_value": 95655.1
+        },
+        "km_tuned": {
+          "total_return": -3.5286959999999965,
+          "buy_and_hold_return": -2.7360000000000144,
+          "sharpe_ratio": -2.5443867324520513,
+          "max_drawdown": -6.399923615443334,
+          "win_rate": 0,
+          "profit_factor": Infinity,
+          "num_trades": 3,
+          "final_value": 96471.304
+        },
+        "lgbm_tuned": {
+          "total_return": 0.0,
+          "buy_and_hold_return": -2.7360000000000144,
+          "sharpe_ratio": 0.0,
+          "max_drawdown": 0.0,
+          "win_rate": 0,
+          "profit_factor": Infinity,
+          "num_trades": 0,
+          "final_value": 100000.0
+        },
+        "ppo_tuned": {
+          "total_return": -4.344899999999994,
+          "buy_and_hold_return": -2.7360000000000144,
+          "sharpe_ratio": -2.6018685109222552,
+          "max_drawdown": -8.17740424202845,
+          "win_rate": 0,
+          "profit_factor": Infinity,
+          "num_trades": 1,
+          "final_value": 95655.1
+        },
+        "best_params": {
+          "km": {
+            "n_clusters": 4,
+            "feature_subset": "all_6",
+            "feature_cols": [
+              "rsi",
+              "macd_hist",
+              "boll_pctb",
+              "vol_ratio",
+              "roc",
+              "atr_ratio"
+            ]
+          },
+          "lgbm": {
+            "n_estimators": 50,
+            "max_depth": 3,
+            "learning_rate": 0.01
+          },
+          "ppo": {
+            "total_timesteps": 50000,
+            "learning_rate": 0.0001,
+            "ent_coef": 0.05,
+            "n_steps": 1024
+          }
+        },
+        "turn": 1
+      }
+    ]
+  }
+]
