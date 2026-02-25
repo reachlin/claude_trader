@@ -133,9 +133,17 @@ class BiLSTMRangeModel(nn.Module):
 
     Architecture
     ------------
-    BiLSTM(hidden, num_layers) → last timestep → FC(fc_size) → ReLU
+    BiLSTM(hidden, num_layers) → all timesteps
+        → [attention pooling OR last timestep]
+        → [optional LayerNorm]
+        → FC(fc_sizes[0]) → ReLU → Dropout
+        → FC(fc_sizes[1]) → ReLU → Dropout  (repeated for each size)
         → head_low (1)
         → head_high (1)
+
+    When use_attention=True a single linear layer scores each timestep;
+    softmax weights are used to compute a weighted sum over the sequence
+    instead of discarding all but the last step.
     """
 
     def __init__(
@@ -143,10 +151,14 @@ class BiLSTMRangeModel(nn.Module):
         input_size: int = 6,
         hidden: int = 64,
         num_layers: int = 2,
-        fc_size: int = 32,
+        fc_sizes: list[int] | None = None,
         dropout: float = 0.2,
+        layer_norm: bool = False,
+        use_attention: bool = False,
     ):
         super().__init__()
+        if fc_sizes is None:
+            fc_sizes = [32]
         lstm_dropout = dropout if num_layers > 1 else 0.0
         self.bilstm = nn.LSTM(
             input_size,
@@ -157,18 +169,35 @@ class BiLSTMRangeModel(nn.Module):
             dropout=lstm_dropout,
         )
         bilstm_out = hidden * 2  # bidirectional doubles the output
-        self.shared = nn.Sequential(
-            nn.Linear(bilstm_out, fc_size),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-        )
-        self.head_low = nn.Linear(fc_size, 1)
-        self.head_high = nn.Linear(fc_size, 1)
+        self.ln = nn.LayerNorm(bilstm_out) if layer_norm else None
+        self.use_attention = use_attention
+        self.attn = nn.Linear(bilstm_out, 1, bias=False) if use_attention else None
+
+        # Build multi-layer FC shared trunk
+        layers = []
+        in_size = bilstm_out
+        for fc_size in fc_sizes:
+            layers.extend([
+                nn.Linear(in_size, fc_size),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+            ])
+            in_size = fc_size
+        self.shared = nn.Sequential(*layers)
+        self.head_low = nn.Linear(in_size, 1)
+        self.head_high = nn.Linear(in_size, 1)
 
     def forward(self, x: torch.Tensor):
         """x: (batch, seq_len, input_size) → (low, high) each (batch,)"""
-        out, _ = self.bilstm(x)
-        out = out[:, -1, :]  # last timestep
+        out, _ = self.bilstm(x)  # (batch, seq_len, hidden*2)
+        if self.use_attention:
+            scores = self.attn(out)                   # (batch, seq_len, 1)
+            weights = torch.softmax(scores, dim=1)    # (batch, seq_len, 1)
+            out = (weights * out).sum(dim=1)           # (batch, hidden*2)
+        else:
+            out = out[:, -1, :]                        # last timestep
+        if self.ln is not None:
+            out = self.ln(out)
         shared = self.shared(out)
         low = self.head_low(shared).squeeze(-1)
         high = self.head_high(shared).squeeze(-1)
@@ -191,10 +220,12 @@ class RangePredictor:
         patience: int = 15,
         hidden: int = 64,
         num_layers: int = 2,
-        fc_size: int = 32,
+        fc_sizes: list[int] | None = None,
         dropout: float = 0.2,
         tau_low: float = 0.8,
         tau_high: float = 0.2,
+        layer_norm: bool = False,
+        use_attention: bool = False,
     ):
         self.window_size = window_size
         self.epochs = epochs
@@ -203,10 +234,12 @@ class RangePredictor:
         self.patience = patience
         self.hidden = hidden
         self.num_layers = num_layers
-        self.fc_size = fc_size
+        self.fc_sizes = fc_sizes if fc_sizes is not None else [32]
         self.dropout = dropout
         self.tau_low = tau_low    # >0.5 → penalise underestimates → pred_low pushed up
         self.tau_high = tau_high  # <0.5 → penalise overestimates  → pred_high pulled down
+        self.layer_norm = layer_norm
+        self.use_attention = use_attention
 
         self.model: BiLSTMRangeModel | None = None
         self.scaler_mean: np.ndarray | None = None
@@ -257,8 +290,10 @@ class RangePredictor:
             input_size=len(FEATURE_COLS),
             hidden=self.hidden,
             num_layers=self.num_layers,
-            fc_size=self.fc_size,
+            fc_sizes=self.fc_sizes,
             dropout=self.dropout,
+            layer_norm=self.layer_norm,
+            use_attention=self.use_attention,
         )
         optimizer = torch.optim.Adam(self.model.parameters(), lr=self.lr)
 
@@ -283,6 +318,113 @@ class RangePredictor:
             train_loss /= train_size
 
             # Validate
+            self.model.eval()
+            val_loss = 0.0
+            with torch.no_grad():
+                for xb, yb in val_loader:
+                    pred_low, pred_high = self.model(xb)
+                    loss = (
+                        pinball_loss(pred_low,  yb[:, 0], self.tau_low) +
+                        pinball_loss(pred_high, yb[:, 1], self.tau_high)
+                    )
+                    val_loss += loss.item() * xb.size(0)
+            val_loss /= val_size
+
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                patience_counter = 0
+                best_state = {k: v.clone() for k, v in self.model.state_dict().items()}
+            else:
+                patience_counter += 1
+
+            if (epoch + 1) % 10 == 0 or epoch == 0:
+                print(
+                    f"  Epoch {epoch+1:3d}/{self.epochs}  "
+                    f"train={train_loss:.6f}  val={val_loss:.6f}"
+                )
+
+            if patience_counter >= self.patience:
+                print(f"  Early stopping at epoch {epoch+1}")
+                break
+
+        if best_state is not None:
+            self.model.load_state_dict(best_state)
+        self.model.eval()
+
+    # ------------------------------------------------------------------
+    # Fit on multiple stocks
+    # ------------------------------------------------------------------
+
+    def fit_multi(self, dfs: list[pd.DataFrame]) -> None:
+        """Train on combined data from multiple stocks.
+
+        Computes a global scaler from all DataFrames, then builds a
+        separate RangeDataset per stock (preventing window artefacts at
+        stock boundaries), concatenates them, and trains a single model.
+        """
+        if not dfs:
+            raise ValueError("dfs must not be empty")
+
+        # Global scaler from all stocks combined
+        all_features = np.vstack([
+            df[FEATURE_COLS].values.astype(np.float32) for df in dfs
+        ])
+        self.scaler_mean = all_features.mean(axis=0)
+        self.scaler_std = all_features.std(axis=0)
+        self.scaler_std[self.scaler_std == 0] = 1.0
+
+        # Build per-stock datasets using the global scaler
+        datasets = []
+        for df in dfs:
+            df_scaled = self._scale(df)
+            ds = RangeDataset(df_scaled, window_size=self.window_size)
+            if len(ds) > 0:
+                datasets.append(ds)
+
+        if not datasets:
+            raise ValueError("No valid windows found in any of the provided DataFrames")
+
+        combined = torch.utils.data.ConcatDataset(datasets)
+        n = len(combined)
+        val_size = max(1, int(n * 0.1))
+        train_size = n - val_size
+
+        train_ds = torch.utils.data.Subset(combined, range(train_size))
+        val_ds = torch.utils.data.Subset(combined, range(train_size, n))
+
+        train_loader = DataLoader(train_ds, batch_size=self.batch_size, shuffle=True)
+        val_loader = DataLoader(val_ds, batch_size=self.batch_size, shuffle=False)
+
+        self.model = BiLSTMRangeModel(
+            input_size=len(FEATURE_COLS),
+            hidden=self.hidden,
+            num_layers=self.num_layers,
+            fc_sizes=self.fc_sizes,
+            dropout=self.dropout,
+            layer_norm=self.layer_norm,
+            use_attention=self.use_attention,
+        )
+        optimizer = torch.optim.Adam(self.model.parameters(), lr=self.lr)
+
+        best_val_loss = float("inf")
+        patience_counter = 0
+        best_state = None
+
+        for epoch in range(self.epochs):
+            self.model.train()
+            train_loss = 0.0
+            for xb, yb in train_loader:
+                optimizer.zero_grad()
+                pred_low, pred_high = self.model(xb)
+                loss = (
+                    pinball_loss(pred_low,  yb[:, 0], self.tau_low) +
+                    pinball_loss(pred_high, yb[:, 1], self.tau_high)
+                )
+                loss.backward()
+                optimizer.step()
+                train_loss += loss.item() * xb.size(0)
+            train_loss /= train_size
+
             self.model.eval()
             val_loss = 0.0
             with torch.no_grad():
@@ -417,6 +559,9 @@ def run_range_backtest(
     patience: int = 15,
     hidden: int = 64,
     num_layers: int = 2,
+    fc_sizes: list[int] | None = None,
+    layer_norm: bool = False,
+    use_attention: bool = False,
     tau_low: float = 0.8,
     tau_high: float = 0.2,
 ) -> dict:
@@ -437,6 +582,9 @@ def run_range_backtest(
         patience=patience,
         hidden=hidden,
         num_layers=num_layers,
+        fc_sizes=fc_sizes,
+        layer_norm=layer_norm,
+        use_attention=use_attention,
         tau_low=tau_low,
         tau_high=tau_high,
     )
@@ -473,6 +621,10 @@ def main():
                         help="Pinball tau for low head (>0.5 penalises underestimates)")
     parser.add_argument("--tau-high", type=float, default=0.2,
                         help="Pinball tau for high head (<0.5 penalises overestimates)")
+    parser.add_argument("--fc-sizes", type=int, nargs="+", default=None,
+                        help="FC layer sizes, e.g. --fc-sizes 256 128 64")
+    parser.add_argument("--layer-norm", action="store_true", default=False)
+    parser.add_argument("--use-attention", action="store_true", default=False)
     args = parser.parse_args()
 
     df = pd.read_csv(args.csv)
@@ -492,6 +644,9 @@ def main():
         patience=args.patience,
         hidden=args.hidden,
         num_layers=args.num_layers,
+        fc_sizes=args.fc_sizes,
+        layer_norm=args.layer_norm,
+        use_attention=args.use_attention,
         tau_low=args.tau_low,
         tau_high=args.tau_high,
     )

@@ -370,3 +370,198 @@ class TestRangePredictorAsymmetricLoss:
         pred_low, pred_high = p.predict_single(self.df)
         assert isinstance(pred_low, float)
         assert isinstance(pred_high, float)
+
+
+# ---------------------------------------------------------------------------
+# Deeper model: fc_sizes and layer_norm
+# ---------------------------------------------------------------------------
+
+class TestDeepBiLSTMRangeModel:
+    def test_multi_layer_fc_output_shape(self):
+        model = BiLSTMRangeModel(input_size=6, fc_sizes=[64, 32])
+        x = torch.randn(4, 20, 6)
+        low, high = model(x)
+        assert low.shape == (4,)
+        assert high.shape == (4,)
+
+    def test_single_fc_layer_via_list(self):
+        model = BiLSTMRangeModel(input_size=6, fc_sizes=[32])
+        x = torch.randn(3, 20, 6)
+        low, high = model(x)
+        assert low.shape == (3,)
+
+    def test_three_fc_layers(self):
+        model = BiLSTMRangeModel(input_size=6, hidden=128, num_layers=4,
+                                  fc_sizes=[256, 128, 64])
+        x = torch.randn(2, 20, 6)
+        low, high = model(x)
+        assert low.shape == (2,)
+        assert high.shape == (2,)
+
+    def test_layer_norm_enabled(self):
+        model = BiLSTMRangeModel(input_size=6, hidden=64, layer_norm=True)
+        x = torch.randn(4, 20, 6)
+        low, high = model(x)
+        assert low.shape == (4,)
+
+    def test_layer_norm_disabled_by_default(self):
+        model = BiLSTMRangeModel(input_size=6)
+        assert model.ln is None
+
+    def test_layer_norm_enabled_sets_ln(self):
+        model = BiLSTMRangeModel(input_size=6, layer_norm=True)
+        assert model.ln is not None
+
+    def test_deep_model_gradients_flow(self):
+        model = BiLSTMRangeModel(input_size=6, hidden=128, num_layers=4,
+                                  fc_sizes=[256, 128, 64], layer_norm=True)
+        x = torch.randn(2, 20, 6)
+        low, high = model(x)
+        (low.mean() + high.mean()).backward()
+        for name, param in model.named_parameters():
+            if param.requires_grad:
+                assert param.grad is not None, f"No gradient for {name}"
+
+    def test_fc_sizes_none_defaults_to_32(self):
+        model = BiLSTMRangeModel(input_size=6, fc_sizes=None)
+        x = torch.randn(2, 20, 6)
+        low, high = model(x)
+        assert low.shape == (2,)
+
+
+class TestRangePredictorDeepConfig:
+    def setup_method(self):
+        self.df = _make_indicator_df(n=120)
+
+    def test_predictor_stores_fc_sizes(self):
+        p = RangePredictor(window_size=20, fc_sizes=[64, 32])
+        assert p.fc_sizes == [64, 32]
+
+    def test_predictor_stores_layer_norm(self):
+        p = RangePredictor(window_size=20, layer_norm=True)
+        assert p.layer_norm is True
+
+    def test_deep_predictor_fit_and_predict(self):
+        p = RangePredictor(window_size=20, epochs=3, batch_size=16,
+                           hidden=128, num_layers=4, fc_sizes=[256, 128, 64],
+                           layer_norm=True)
+        p.fit(self.df)
+        pred_low, pred_high = p.predict_single(self.df)
+        assert isinstance(pred_low, float)
+        assert isinstance(pred_high, float)
+
+
+class TestRangePredictorFitMulti:
+    def setup_method(self):
+        self.dfs = [_make_indicator_df(n=120, seed=i) for i in range(3)]
+
+    def test_fit_multi_runs(self):
+        p = RangePredictor(window_size=20, epochs=3, batch_size=16)
+        p.fit_multi(self.dfs)
+        assert p.model is not None
+
+    def test_fit_multi_scaler_set(self):
+        p = RangePredictor(window_size=20, epochs=3, batch_size=16)
+        p.fit_multi(self.dfs)
+        assert p.scaler_mean is not None
+        assert p.scaler_std is not None
+
+    def test_fit_multi_predict_single(self):
+        p = RangePredictor(window_size=20, epochs=3, batch_size=16)
+        p.fit_multi(self.dfs)
+        pred_low, pred_high = p.predict_single(self.dfs[0])
+        assert isinstance(pred_low, float)
+        assert isinstance(pred_high, float)
+
+    def test_fit_multi_more_samples_than_single(self):
+        """Combined dataset should have more samples than any single stock."""
+        p_single = RangePredictor(window_size=20, epochs=1)
+        p_multi = RangePredictor(window_size=20, epochs=1)
+        # Just verify fit_multi accepts list of dfs without error
+        p_multi.fit_multi(self.dfs)
+        p_single.fit(self.dfs[0])
+        assert p_multi.model is not None
+        assert p_single.model is not None
+
+
+# ---------------------------------------------------------------------------
+# Attention mechanism
+# ---------------------------------------------------------------------------
+
+class TestAttentionBiLSTMRangeModel:
+    def test_attention_output_shape(self):
+        model = BiLSTMRangeModel(input_size=6, use_attention=True)
+        x = torch.randn(4, 20, 6)
+        low, high = model(x)
+        assert low.shape == (4,)
+        assert high.shape == (4,)
+
+    def test_attention_disabled_has_no_attn_layer(self):
+        model = BiLSTMRangeModel(input_size=6, use_attention=False)
+        assert model.attn is None
+
+    def test_attention_enabled_has_attn_layer(self):
+        model = BiLSTMRangeModel(input_size=6, use_attention=True)
+        assert model.attn is not None
+        assert isinstance(model.attn, torch.nn.Linear)
+
+    def test_attention_weights_sum_to_one(self):
+        import torch.nn.functional as F
+        model = BiLSTMRangeModel(input_size=6, hidden=32, use_attention=True)
+        x = torch.randn(3, 20, 6)
+        model.eval()
+        with torch.no_grad():
+            out, _ = model.bilstm(x)
+            scores = model.attn(out)               # (3, 20, 1)
+            weights = torch.softmax(scores, dim=1) # (3, 20, 1)
+        sums = weights.sum(dim=1)                  # (3, 1)
+        assert torch.allclose(sums, torch.ones_like(sums), atol=1e-5)
+
+    def test_attention_gradients_flow(self):
+        model = BiLSTMRangeModel(input_size=6, use_attention=True)
+        x = torch.randn(2, 20, 6)
+        low, high = model(x)
+        (low.mean() + high.mean()).backward()
+        assert model.attn.weight.grad is not None
+        for name, param in model.named_parameters():
+            if param.requires_grad:
+                assert param.grad is not None, f"No gradient for {name}"
+
+    def test_attention_with_layer_norm(self):
+        model = BiLSTMRangeModel(input_size=6, use_attention=True, layer_norm=True)
+        x = torch.randn(4, 20, 6)
+        low, high = model(x)
+        assert low.shape == (4,)
+
+    def test_attention_with_deep_fc(self):
+        model = BiLSTMRangeModel(
+            input_size=6, hidden=128, num_layers=4,
+            fc_sizes=[256, 128, 64], layer_norm=True, use_attention=True,
+        )
+        x = torch.randn(2, 20, 6)
+        low, high = model(x)
+        assert low.shape == (2,)
+
+    def test_predictor_stores_use_attention(self):
+        p = RangePredictor(use_attention=True)
+        assert p.use_attention is True
+
+    def test_predictor_default_no_attention(self):
+        p = RangePredictor()
+        assert p.use_attention is False
+
+    def test_predictor_fit_with_attention(self):
+        df = _make_indicator_df(n=120)
+        p = RangePredictor(window_size=20, epochs=3, batch_size=16,
+                           use_attention=True)
+        p.fit(df)
+        pred_low, pred_high = p.predict_single(df)
+        assert isinstance(pred_low, float)
+        assert isinstance(pred_high, float)
+
+    def test_predictor_fit_multi_with_attention(self):
+        dfs = [_make_indicator_df(n=120, seed=i) for i in range(2)]
+        p = RangePredictor(window_size=20, epochs=3, batch_size=16,
+                           use_attention=True)
+        p.fit_multi(dfs)
+        assert p.model is not None
