@@ -57,43 +57,51 @@ def _make_indicator_df(n: int = 120, seed: int = 42) -> pd.DataFrame:
 class TestScorePrediction:
     # Scoring scheme:
     #   -1  pred_low >= actual_high  OR  pred_high <= actual_low  (range fully on wrong side)
-    #   otherwise: +1 if round(pred_low,1)==round(actual_low,1), +1 if round(pred_high,1)==round(actual_high,1)
-    #   Total: -1, 0, 1, or 2
+    #   otherwise: +1 if abs(pred_low-actual_low)/actual_low   <= match_pct
+    #              +1 if abs(pred_high-actual_high)/actual_high <= match_pct
+    #   Total: -1, 0, 1, or 2.  Default match_pct=0.01 (1%).
 
-    def test_both_match_score_two(self):
-        # 2.13→2.1==2.10→2.1 (+1); 4.27→4.3==4.30→4.3 (+1)
-        assert score_prediction(2.13, 4.27, 2.10, 4.30) == 2
+    def test_both_within_1pct_score_two(self):
+        # low: |1490 - 1500| / 1500 = 0.67% < 1% (+1)
+        # high: |1510 - 1505| / 1505 = 0.33% < 1% (+1)
+        assert score_prediction(1490.0, 1510.0, 1500.0, 1505.0) == 2
 
     def test_exact_match_score_two(self):
         assert score_prediction(3.10, 4.30, 3.10, 4.30) == 2
 
-    def test_low_matches_high_does_not(self):
-        # 2.13→2.1==2.1 (+1); 4.27→4.3 != 4.20→4.2 (0)
-        assert score_prediction(2.13, 4.27, 2.10, 4.20) == 1
+    def test_low_within_high_outside(self):
+        # low: |6.05 - 6.00| / 6.00 = 0.83% < 1% (+1)
+        # high: |6.80 - 6.50| / 6.50 = 4.6%  > 1% (0)
+        assert score_prediction(6.05, 6.80, 6.00, 6.50) == 1
 
-    def test_high_matches_low_does_not(self):
-        # 2.13→2.1 != 2.20→2.2 (0); 4.27→4.3==4.3 (+1)
-        assert score_prediction(2.13, 4.27, 2.20, 4.30) == 1
+    def test_high_within_low_outside(self):
+        # low: |5.50 - 6.00| / 6.00 = 8.3% > 1% (0)
+        # high: |6.55 - 6.50| / 6.50 = 0.77% < 1% (+1)
+        assert score_prediction(5.50, 6.55, 6.00, 6.50) == 1
 
-    def test_neither_matches_score_zero(self):
-        # 2.13→2.1 != 2.20→2.2; 4.27→4.3 != 4.20→4.2
-        assert score_prediction(2.13, 4.27, 2.20, 4.20) == 0
+    def test_neither_within_1pct_score_zero(self):
+        # low: |5.50-6.00|/6.00 = 8.3% > 1%; high: |7.00-6.50|/6.50 = 7.7% > 1%
+        assert score_prediction(5.50, 7.00, 6.00, 6.50) == 0
 
     def test_minus_one_pred_low_above_actual_high(self):
-        # pred_low(5.0) >= actual_high(4.0) → -1
         assert score_prediction(5.0, 6.0, 3.0, 4.0) == -1
 
     def test_minus_one_pred_low_equals_actual_high(self):
-        # pred_low(4.0) >= actual_high(4.0) → -1
         assert score_prediction(4.0, 6.0, 3.0, 4.0) == -1
 
     def test_minus_one_pred_high_below_actual_low(self):
-        # pred_high(2.0) <= actual_low(3.0) → -1
         assert score_prediction(1.0, 2.0, 3.0, 5.0) == -1
 
     def test_minus_one_pred_high_equals_actual_low(self):
-        # pred_high(3.0) <= actual_low(3.0) → -1
         assert score_prediction(1.0, 3.0, 3.0, 5.0) == -1
+
+    def test_custom_match_pct(self):
+        # low:  |1490-1500|/1500 = 0.67% → matches at 1%, misses at 0.5%
+        # high: |1510-1505|/1505 = 0.33% → matches at both 1% and 0.5%
+        assert score_prediction(1490.0, 1510.0, 1500.0, 1505.0, match_pct=0.01) == 2
+        assert score_prediction(1490.0, 1510.0, 1500.0, 1505.0, match_pct=0.005) == 1
+        # At 0.1% tolerance neither matches
+        assert score_prediction(1490.0, 1510.0, 1500.0, 1505.0, match_pct=0.001) == 0
 
     def test_returns_int(self):
         assert isinstance(score_prediction(3.1, 4.2, 3.0, 4.5), int)
@@ -103,7 +111,7 @@ class TestScorePrediction:
             (1.0, 2.0, 1.0, 2.0),
             (1.0, 2.5, 1.0, 2.0),
             (1.5, 2.5, 1.0, 2.0),
-            (5.0, 6.0, 1.0, 2.0),  # -1 case
+            (5.0, 6.0, 1.0, 2.0),
         ]:
             s = score_prediction(pred_l, pred_h, act_l, act_h)
             assert -1 <= s <= 2, f"score {s} out of [-1,2]"
@@ -283,6 +291,14 @@ class TestEvaluateScore:
         result = predictor.evaluate_score(self.df)
         n = result["n_predictions"]
         assert -n <= result["total_score"] <= n * 2
+
+    def test_evaluate_score_custom_match_pct(self):
+        # Wider tolerance should give equal or higher score than tighter
+        predictor = RangePredictor(window_size=20, epochs=3, batch_size=16)
+        predictor.fit(self.df)
+        tight = predictor.evaluate_score(self.df, match_pct=0.001)
+        loose = predictor.evaluate_score(self.df, match_pct=0.10)
+        assert loose["total_score"] >= tight["total_score"]
 
 
 # ---------------------------------------------------------------------------

@@ -42,9 +42,9 @@ Scoring scheme
 --------------
   -1  — predicted range is fully on the wrong side of the actual range
         (pred_low >= actual_high  OR  pred_high <= actual_low)
-  +1  — predicted low  rounds to same 0.1 as actual low   (otherwise)
-  +1  — predicted high rounds to same 0.1 as actual high  (otherwise)
-   0  — no match on that side
+  +1  — |pred_low  - actual_low|  / actual_low  <= match_pct  (default 1%)
+  +1  — |pred_high - actual_high| / actual_high <= match_pct  (default 1%)
+   0  — outside tolerance on that side
   Total per prediction: -1, 0, 1, or 2
 """
 
@@ -87,30 +87,35 @@ def score_prediction(
     pred_high: float,
     actual_low: float,
     actual_high: float,
+    match_pct: float = 0.01,
 ) -> int:
     """Score a single range prediction.
 
     -1  if the predicted range sits entirely on the wrong side of the actual
         range — pred_low >= actual_high (predicted too high) or
-        pred_high <= actual_low (predicted too low).  These are the worst
-        kind of error: the model has the direction completely backwards.
+        pred_high <= actual_low (predicted too low).
 
-    Otherwise, each side earns +1 independently if the predicted price rounds
-    to the same 0.1 as the actual price.  Total: -1, 0, 1, or 2.
+    Otherwise, each side earns +1 independently if the predicted price is
+    within match_pct (default 1%) of the actual price:
+        |pred - actual| / actual <= match_pct
 
-    Examples
-    --------
-    pred_low=2.13, actual_low=2.10  → round to 2.1 == 2.1  → +1
-    pred_low=2.13, actual_low=2.20  → round to 2.1 != 2.2  →  0
-    pred_high=4.27, actual_high=4.30 → round to 4.3 == 4.3 → +1
-    pred_low=5.0,  actual_high=4.0  → 5.0 >= 4.0           → -1
-    pred_high=2.0, actual_low=3.0   → 2.0 <= 3.0           → -1
+    Using a percentage tolerance (rather than a fixed unit like 0.1) makes
+    the scoring scale-invariant: 1% of 6 CNY ≈ 0.06, while 1% of 1500 CNY
+    ≈ 15 — both are sensible thresholds for their respective stocks.
+
+    Total per prediction: -1, 0, 1, or 2.
+
+    Examples  (match_pct=0.01)
+    --------------------------
+    pred_low=1490, actual_low=1500  → |1490-1500|/1500 = 0.67% ≤ 1% → +1
+    pred_low=1470, actual_low=1500  → |1470-1500|/1500 = 2.0%  > 1% →  0
+    pred_low=5.0,  actual_high=4.0  → 5.0 >= 4.0                    → -1
     """
     # -1: predicted range is completely on the wrong side
     if pred_low >= actual_high or pred_high <= actual_low:
         return -1
-    low_match  = round(pred_low,  1) == round(actual_low,  1)
-    high_match = round(pred_high, 1) == round(actual_high, 1)
+    low_match  = abs(pred_low  - actual_low)  / actual_low  <= match_pct
+    high_match = abs(pred_high - actual_high) / actual_high <= match_pct
     return int(low_match) + int(high_match)
 
 
@@ -303,6 +308,7 @@ class RangePredictor:
         layer_norm: bool = False,
         use_attention: bool = False,
         ordering_weight: float = 1.0,
+        match_pct: float = 0.01,
     ):
         self.window_size = window_size
         self.epochs = epochs
@@ -321,6 +327,8 @@ class RangePredictor:
         # clamp(pred_low - pred_high, min=0) is added to the loss, pushing the
         # two heads apart so the model learns the ordering constraint explicitly.
         self.ordering_weight = ordering_weight
+        # Percentage tolerance for low/high match scoring (default 1%).
+        self.match_pct = match_pct
 
         self.model: BiLSTMRangeModel | None = None
         # Z-score scaler parameters fitted on training data; stored so the same
@@ -632,12 +640,16 @@ class RangePredictor:
     # Evaluation
     # ------------------------------------------------------------------
 
-    def evaluate_score(self, df: pd.DataFrame) -> dict:
+    def evaluate_score(self, df: pd.DataFrame, match_pct: float | None = None) -> dict:
         """Score all predictions against actual next-day (low, high).
 
-        Returns a dict with total_score, plus_two, plus_one, zero, n_predictions.
-        Each prediction scores 0, 1, or 2 (see score_prediction).
+        match_pct overrides self.match_pct for this call (useful for comparing
+        different tolerances without re-fitting).
+
+        Returns a dict with total_score, plus_two, plus_one, minus_one, zero,
+        n_predictions.  Each prediction scores -1, 0, 1, or 2.
         """
+        pct = match_pct if match_pct is not None else self.match_pct
         predictions = self.predict(df)
         lows = df["low"].values.astype(np.float32)
         highs = df["high"].values.astype(np.float32)
@@ -648,7 +660,7 @@ class RangePredictor:
             target_row = i + self.window_size
             actual_low = float(lows[target_row])
             actual_high = float(highs[target_row])
-            s = score_prediction(pred_low, pred_high, actual_low, actual_high)
+            s = score_prediction(pred_low, pred_high, actual_low, actual_high, pct)
             if s == 2:
                 plus_two += 1
             elif s == 1:
@@ -688,6 +700,7 @@ def run_range_backtest(
     layer_norm: bool = False,
     use_attention: bool = False,
     ordering_weight: float = 1.0,
+    match_pct: float = 0.01,
     tau_low: float = 0.8,
     tau_high: float = 0.2,
 ) -> dict:
@@ -718,6 +731,7 @@ def run_range_backtest(
         layer_norm=layer_norm,
         use_attention=use_attention,
         ordering_weight=ordering_weight,
+        match_pct=match_pct,
         tau_low=tau_low,
         tau_high=tau_high,
     )
@@ -760,6 +774,8 @@ def main():
     parser.add_argument("--use-attention", action="store_true", default=False)
     parser.add_argument("--ordering-weight", type=float, default=1.0,
                         help="Penalty weight for pred_low > pred_high violations")
+    parser.add_argument("--match-pct", type=float, default=0.01,
+                        help="Percentage tolerance for low/high match (default 0.01 = 1%%)")
     args = parser.parse_args()
 
     df = pd.read_csv(args.csv)
@@ -783,6 +799,7 @@ def main():
         layer_norm=args.layer_norm,
         use_attention=args.use_attention,
         ordering_weight=args.ordering_weight,
+        match_pct=args.match_pct,
         tau_low=args.tau_low,
         tau_high=args.tau_high,
     )
