@@ -106,7 +106,8 @@ def evaluate_on_stocks(
         if len(test_df) < predictor.window_size + 2:
             print(f"  [SKIP] {stock_name}: too few rows ({len(test_df)})")
             results[stock_name] = {"total_score": 0, "n_predictions": 0,
-                                    "plus_two": 0, "plus_one": 0, "zero": 0}
+                                    "plus_two": 0, "plus_one": 0,
+                                    "minus_one": 0, "zero": 0}
             continue
         scores = predictor.evaluate_score(test_df)
         results[stock_name] = scores
@@ -229,6 +230,7 @@ def _print_comparison(all_results: dict[str, dict[str, dict]]) -> None:
                 f"+2={r['plus_two']} ({r['plus_two']/n*100:.0f}%)  "
                 f"+1={r['plus_one']} ({r['plus_one']/n*100:.0f}%)  "
                 f"0={r['zero']} ({r['zero']/n*100:.0f}%)  "
+                f"-1={r['minus_one']} ({r['minus_one']/n*100:.0f}%)  "
                 f"score={r['total_score']:+d}"
             )
 

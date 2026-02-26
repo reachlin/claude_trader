@@ -40,10 +40,12 @@ Why relative targets?
 
 Scoring scheme
 --------------
-  +1  — predicted low  rounds to same 0.1 as actual low
-  +1  — predicted high rounds to same 0.1 as actual high
+  -1  — predicted range is fully on the wrong side of the actual range
+        (pred_low >= actual_high  OR  pred_high <= actual_low)
+  +1  — predicted low  rounds to same 0.1 as actual low   (otherwise)
+  +1  — predicted high rounds to same 0.1 as actual high  (otherwise)
    0  — no match on that side
-  Total per prediction: 0, 1, or 2  (no negatives)
+  Total per prediction: -1, 0, 1, or 2
 """
 
 import argparse
@@ -88,15 +90,25 @@ def score_prediction(
 ) -> int:
     """Score a single range prediction.
 
-    Each side (low, high) earns +1 independently if the predicted price
-    rounds to the same 0.1 as the actual price.  Total: 0, 1, or 2.
+    -1  if the predicted range sits entirely on the wrong side of the actual
+        range — pred_low >= actual_high (predicted too high) or
+        pred_high <= actual_low (predicted too low).  These are the worst
+        kind of error: the model has the direction completely backwards.
+
+    Otherwise, each side earns +1 independently if the predicted price rounds
+    to the same 0.1 as the actual price.  Total: -1, 0, 1, or 2.
 
     Examples
     --------
     pred_low=2.13, actual_low=2.10  → round to 2.1 == 2.1  → +1
     pred_low=2.13, actual_low=2.20  → round to 2.1 != 2.2  →  0
     pred_high=4.27, actual_high=4.30 → round to 4.3 == 4.3 → +1
+    pred_low=5.0,  actual_high=4.0  → 5.0 >= 4.0           → -1
+    pred_high=2.0, actual_low=3.0   → 2.0 <= 3.0           → -1
     """
+    # -1: predicted range is completely on the wrong side
+    if pred_low >= actual_high or pred_high <= actual_low:
+        return -1
     low_match  = round(pred_low,  1) == round(actual_low,  1)
     high_match = round(pred_high, 1) == round(actual_high, 1)
     return int(low_match) + int(high_match)
@@ -612,7 +624,7 @@ class RangePredictor:
         lows = df["low"].values.astype(np.float32)
         highs = df["high"].values.astype(np.float32)
 
-        plus_two = plus_one = zero = 0
+        plus_two = plus_one = minus_one = zero = 0
         for i, (pred_low, pred_high) in enumerate(predictions):
             # target row is i + window_size (same alignment as predict())
             target_row = i + self.window_size
@@ -623,15 +635,18 @@ class RangePredictor:
                 plus_two += 1
             elif s == 1:
                 plus_one += 1
+            elif s == -1:
+                minus_one += 1
             else:
                 zero += 1
 
-        n = plus_two + plus_one + zero
-        total = plus_two * 2 + plus_one * 1
+        n = plus_two + plus_one + minus_one + zero
+        total = plus_two * 2 + plus_one * 1 + minus_one * (-1)
         return {
             "total_score": total,
             "plus_two": plus_two,
             "plus_one": plus_one,
+            "minus_one": minus_one,
             "zero": zero,
             "n_predictions": n,
         }
@@ -753,12 +768,13 @@ def main():
     print(f"\n{'=' * 60}")
     print("SCORING RESULTS (test set)")
     print("=" * 60)
-    print(f"  Predictions      : {n}")
-    print(f"  +2 (both match)  : {result['plus_two']:5d}  ({result['plus_two']/n*100:.1f}%)")
-    print(f"  +1 (one match)   : {result['plus_one']:5d}  ({result['plus_one']/n*100:.1f}%)")
-    print(f"   0 (no match)    : {result['zero']:5d}  ({result['zero']/n*100:.1f}%)")
-    print(f"  Total score      : {result['total_score']:+d}")
-    print(f"  Score / pred     : {result['total_score']/n:+.3f}")
+    print(f"  Predictions       : {n}")
+    print(f"  +2 (both match)   : {result['plus_two']:5d}  ({result['plus_two']/n*100:.1f}%)")
+    print(f"  +1 (one match)    : {result['plus_one']:5d}  ({result['plus_one']/n*100:.1f}%)")
+    print(f"   0 (no match)     : {result['zero']:5d}  ({result['zero']/n*100:.1f}%)")
+    print(f"  -1 (wrong side)   : {result['minus_one']:5d}  ({result['minus_one']/n*100:.1f}%)")
+    print(f"  Total score       : {result['total_score']:+d}")
+    print(f"  Score / pred      : {result['total_score']/n:+.3f}")
 
     # Next-day prediction
     print(f"\n{'=' * 60}")

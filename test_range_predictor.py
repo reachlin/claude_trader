@@ -55,49 +55,58 @@ def _make_indicator_df(n: int = 120, seed: int = 42) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 class TestScorePrediction:
-    # New scheme: round both predicted and actual to 0.1; +1 per side that matches.
-    # Total score per prediction: 0, 1, or 2.
+    # Scoring scheme:
+    #   -1  pred_low >= actual_high  OR  pred_high <= actual_low  (range fully on wrong side)
+    #   otherwise: +1 if round(pred_low,1)==round(actual_low,1), +1 if round(pred_high,1)==round(actual_high,1)
+    #   Total: -1, 0, 1, or 2
 
     def test_both_match_score_two(self):
-        # 2.13 → 2.1, 2.10 → 2.1: low matches; 4.27 → 4.3, 4.30 → 4.3: high matches
+        # 2.13→2.1==2.10→2.1 (+1); 4.27→4.3==4.30→4.3 (+1)
         assert score_prediction(2.13, 4.27, 2.10, 4.30) == 2
 
     def test_exact_match_score_two(self):
         assert score_prediction(3.10, 4.30, 3.10, 4.30) == 2
 
     def test_low_matches_high_does_not(self):
-        # 2.13 → 2.1 == 2.10 → 2.1: low +1; 4.27 → 4.3 != 4.20 → 4.2: high 0
+        # 2.13→2.1==2.1 (+1); 4.27→4.3 != 4.20→4.2 (0)
         assert score_prediction(2.13, 4.27, 2.10, 4.20) == 1
 
     def test_high_matches_low_does_not(self):
-        # 2.13 → 2.1 != 2.20 → 2.2: low 0; 4.27 → 4.3 == 4.30 → 4.3: high +1
+        # 2.13→2.1 != 2.20→2.2 (0); 4.27→4.3==4.3 (+1)
         assert score_prediction(2.13, 4.27, 2.20, 4.30) == 1
 
     def test_neither_matches_score_zero(self):
-        # 2.13 → 2.1 != 2.20 → 2.2; 4.27 → 4.3 != 4.20 → 4.2
+        # 2.13→2.1 != 2.20→2.2; 4.27→4.3 != 4.20→4.2
         assert score_prediction(2.13, 4.27, 2.20, 4.20) == 0
 
-    def test_rounding_boundary_low(self):
-        # 6.14 → 6.1, 6.10 → 6.1: match
-        assert score_prediction(6.14, 9.99, 6.10, 9.00) == 1
+    def test_minus_one_pred_low_above_actual_high(self):
+        # pred_low(5.0) >= actual_high(4.0) → -1
+        assert score_prediction(5.0, 6.0, 3.0, 4.0) == -1
 
-    def test_rounding_boundary_cross(self):
-        # 6.15 rounds to 6.2 (Python rounds half to even → 6.2); 6.10 → 6.1: no match
-        # Use a clear non-boundary case instead
-        assert score_prediction(6.19, 9.00, 6.10, 9.00) == 1  # 6.2 != 6.1 → low 0; 9.0==9.0 → high +1
+    def test_minus_one_pred_low_equals_actual_high(self):
+        # pred_low(4.0) >= actual_high(4.0) → -1
+        assert score_prediction(4.0, 6.0, 3.0, 4.0) == -1
+
+    def test_minus_one_pred_high_below_actual_low(self):
+        # pred_high(2.0) <= actual_low(3.0) → -1
+        assert score_prediction(1.0, 2.0, 3.0, 5.0) == -1
+
+    def test_minus_one_pred_high_equals_actual_low(self):
+        # pred_high(3.0) <= actual_low(3.0) → -1
+        assert score_prediction(1.0, 3.0, 3.0, 5.0) == -1
 
     def test_returns_int(self):
         assert isinstance(score_prediction(3.1, 4.2, 3.0, 4.5), int)
 
-    def test_score_range_is_zero_to_two(self):
+    def test_score_range_is_minus_one_to_two(self):
         for pred_l, pred_h, act_l, act_h in [
             (1.0, 2.0, 1.0, 2.0),
             (1.0, 2.5, 1.0, 2.0),
-            (1.5, 2.0, 1.0, 2.0),
             (1.5, 2.5, 1.0, 2.0),
+            (5.0, 6.0, 1.0, 2.0),  # -1 case
         ]:
             s = score_prediction(pred_l, pred_h, act_l, act_h)
-            assert 0 <= s <= 2, f"score {s} out of [0,2]"
+            assert -1 <= s <= 2, f"score {s} out of [-1,2]"
 
 
 # ---------------------------------------------------------------------------
@@ -258,14 +267,14 @@ class TestEvaluateScore:
         predictor = RangePredictor(window_size=20, epochs=3, batch_size=16)
         predictor.fit(self.df)
         result = predictor.evaluate_score(self.df)
-        for key in ("total_score", "plus_two", "plus_one", "zero", "n_predictions"):
+        for key in ("total_score", "plus_two", "plus_one", "minus_one", "zero", "n_predictions"):
             assert key in result, f"Missing key: {key}"
 
     def test_evaluate_score_counts_add_up(self):
         predictor = RangePredictor(window_size=20, epochs=3, batch_size=16)
         predictor.fit(self.df)
         result = predictor.evaluate_score(self.df)
-        assert (result["plus_two"] + result["plus_one"] + result["zero"]
+        assert (result["plus_two"] + result["plus_one"] + result["minus_one"] + result["zero"]
                 == result["n_predictions"])
 
     def test_evaluate_score_total_score_range(self):
@@ -273,14 +282,7 @@ class TestEvaluateScore:
         predictor.fit(self.df)
         result = predictor.evaluate_score(self.df)
         n = result["n_predictions"]
-        # Score is now 0..+2 per prediction, no negatives
-        assert 0 <= result["total_score"] <= n * 2
-
-    def test_evaluate_score_no_minus_one(self):
-        predictor = RangePredictor(window_size=20, epochs=3, batch_size=16)
-        predictor.fit(self.df)
-        result = predictor.evaluate_score(self.df)
-        assert "minus_one" not in result
+        assert -n <= result["total_score"] <= n * 2
 
 
 # ---------------------------------------------------------------------------
@@ -291,21 +293,21 @@ class TestRunRangeBacktest:
     def test_returns_dict_with_keys(self):
         df = _make_ohlcv(n=150)
         result = run_range_backtest(df, train_ratio=0.7, window_size=20, epochs=3)
-        for key in ("total_score", "plus_two", "plus_one", "zero",
+        for key in ("total_score", "plus_two", "plus_one", "minus_one", "zero",
                     "n_predictions", "train_rows", "test_rows", "predictor", "test_df"):
             assert key in result, f"Missing key: {key}"
 
     def test_counts_consistent(self):
         df = _make_ohlcv(n=150)
         result = run_range_backtest(df, train_ratio=0.7, window_size=20, epochs=3)
-        assert (result["plus_two"] + result["plus_one"] + result["zero"]
+        assert (result["plus_two"] + result["plus_one"] + result["minus_one"] + result["zero"]
                 == result["n_predictions"])
 
     def test_score_within_bounds(self):
         df = _make_ohlcv(n=150)
         result = run_range_backtest(df, train_ratio=0.7, window_size=20, epochs=3)
         n = result["n_predictions"]
-        assert 0 <= result["total_score"] <= n * 2
+        assert -n <= result["total_score"] <= n * 2
 
 
 # ---------------------------------------------------------------------------
