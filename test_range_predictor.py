@@ -585,3 +585,46 @@ class TestAttentionBiLSTMRangeModel:
                            use_attention=True)
         p.fit_multi(dfs)
         assert p.model is not None
+
+
+# ---------------------------------------------------------------------------
+# Ordering constraint (pred_low <= pred_high)
+# ---------------------------------------------------------------------------
+
+class TestOrderingConstraint:
+    def setup_method(self):
+        self.df = _make_indicator_df(n=120)
+
+    def test_predictor_stores_ordering_weight(self):
+        p = RangePredictor(ordering_weight=2.0)
+        assert p.ordering_weight == 2.0
+
+    def test_default_ordering_weight(self):
+        p = RangePredictor()
+        assert p.ordering_weight > 0
+
+    def test_predict_never_returns_inverted(self):
+        p = RangePredictor(window_size=20, epochs=3, batch_size=16)
+        p.fit(self.df)
+        for pred_low, pred_high in p.predict(self.df):
+            assert pred_low <= pred_high, f"Inverted: {pred_low} > {pred_high}"
+
+    def test_predict_single_never_returns_inverted(self):
+        p = RangePredictor(window_size=20, epochs=3, batch_size=16)
+        p.fit(self.df)
+        pred_low, pred_high = p.predict_single(self.df)
+        assert pred_low <= pred_high, f"Inverted: {pred_low} > {pred_high}"
+
+    def test_fit_multi_predict_never_inverted(self):
+        dfs = [_make_indicator_df(n=120, seed=i) for i in range(2)]
+        p = RangePredictor(window_size=20, epochs=3, batch_size=16)
+        p.fit_multi(dfs)
+        pred_low, pred_high = p.predict_single(dfs[0])
+        assert pred_low <= pred_high
+
+    def test_ordering_weight_zero_still_swaps_at_inference(self):
+        # Even with no ordering penalty during training, inference must never invert.
+        p = RangePredictor(window_size=20, epochs=3, batch_size=16, ordering_weight=0.0)
+        p.fit(self.df)
+        for pred_low, pred_high in p.predict(self.df):
+            assert pred_low <= pred_high

@@ -302,6 +302,7 @@ class RangePredictor:
         tau_high: float = 0.2,  # <0.5 → penalise overestimates  → pred_high pulled down toward ceiling
         layer_norm: bool = False,
         use_attention: bool = False,
+        ordering_weight: float = 1.0,
     ):
         self.window_size = window_size
         self.epochs = epochs
@@ -316,6 +317,10 @@ class RangePredictor:
         self.tau_high = tau_high
         self.layer_norm = layer_norm
         self.use_attention = use_attention
+        # Penalty weight for pred_low > pred_high violations during training.
+        # clamp(pred_low - pred_high, min=0) is added to the loss, pushing the
+        # two heads apart so the model learns the ordering constraint explicitly.
+        self.ordering_weight = ordering_weight
 
         self.model: BiLSTMRangeModel | None = None
         # Z-score scaler parameters fitted on training data; stored so the same
@@ -397,9 +402,14 @@ class RangePredictor:
                 pred_low, pred_high = self.model(xb)
                 # Sum of two pinball losses: one for the low head, one for the high head.
                 # Each head is optimised toward a different quantile of the distribution.
+                # The ordering penalty pushes pred_low below pred_high during training;
+                # clamp ensures we only penalise violations (pred_low > pred_high), not
+                # correct orderings.
+                ordering_penalty = torch.clamp(pred_low - pred_high, min=0).mean()
                 loss = (
                     pinball_loss(pred_low,  yb[:, 0], self.tau_low) +
-                    pinball_loss(pred_high, yb[:, 1], self.tau_high)
+                    pinball_loss(pred_high, yb[:, 1], self.tau_high) +
+                    self.ordering_weight * ordering_penalty
                 )
                 loss.backward()
                 optimizer.step()
@@ -521,9 +531,11 @@ class RangePredictor:
             for xb, yb in train_loader:
                 optimizer.zero_grad()
                 pred_low, pred_high = self.model(xb)
+                ordering_penalty = torch.clamp(pred_low - pred_high, min=0).mean()
                 loss = (
                     pinball_loss(pred_low,  yb[:, 0], self.tau_low) +
-                    pinball_loss(pred_high, yb[:, 1], self.tau_high)
+                    pinball_loss(pred_high, yb[:, 1], self.tau_high) +
+                    self.ordering_weight * ordering_penalty
                 )
                 loss.backward()
                 optimizer.step()
@@ -591,6 +603,9 @@ class RangePredictor:
                 today_close = float(closes[i + self.window_size - 1])
                 pred_low = float(rel_low.item()) * today_close + today_close
                 pred_high = float(rel_high.item()) * today_close + today_close
+                # Safety net: swap if the ordering constraint is still violated.
+                if pred_low > pred_high:
+                    pred_low, pred_high = pred_high, pred_low
                 results.append((pred_low, pred_high))
         return results
 
@@ -608,6 +623,9 @@ class RangePredictor:
             rel_low, rel_high = self.model(window)
         pred_low = float(rel_low.item()) * today_close + today_close
         pred_high = float(rel_high.item()) * today_close + today_close
+        # Safety net: swap if the ordering constraint is still violated.
+        if pred_low > pred_high:
+            pred_low, pred_high = pred_high, pred_low
         return pred_low, pred_high
 
     # ------------------------------------------------------------------
@@ -669,6 +687,7 @@ def run_range_backtest(
     fc_sizes: list[int] | None = None,
     layer_norm: bool = False,
     use_attention: bool = False,
+    ordering_weight: float = 1.0,
     tau_low: float = 0.8,
     tau_high: float = 0.2,
 ) -> dict:
@@ -698,6 +717,7 @@ def run_range_backtest(
         fc_sizes=fc_sizes,
         layer_norm=layer_norm,
         use_attention=use_attention,
+        ordering_weight=ordering_weight,
         tau_low=tau_low,
         tau_high=tau_high,
     )
@@ -738,6 +758,8 @@ def main():
                         help="FC layer sizes, e.g. --fc-sizes 256 128 64")
     parser.add_argument("--layer-norm", action="store_true", default=False)
     parser.add_argument("--use-attention", action="store_true", default=False)
+    parser.add_argument("--ordering-weight", type=float, default=1.0,
+                        help="Penalty weight for pred_low > pred_high violations")
     args = parser.parse_args()
 
     df = pd.read_csv(args.csv)
@@ -760,6 +782,7 @@ def main():
         fc_sizes=args.fc_sizes,
         layer_norm=args.layer_norm,
         use_attention=args.use_attention,
+        ordering_weight=args.ordering_weight,
         tau_low=args.tau_low,
         tau_high=args.tau_high,
     )
