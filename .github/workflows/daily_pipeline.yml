@@ -7,10 +7,6 @@ on:
     - cron: "0 9 * * 1-5"
   workflow_dispatch:
     inputs:
-      ticker:
-        description: "Stock ticker symbol"
-        required: false
-        default: "601328"
       skip_tune:
         description: "Skip hyperparameter tuning"
         required: false
@@ -21,6 +17,11 @@ jobs:
   run-pipeline:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+
+    strategy:
+      matrix:
+        ticker: [601328, 601933]
+      fail-fast: false
 
     steps:
       - name: Checkout repository
@@ -41,14 +42,13 @@ jobs:
       - name: Run daily pipeline
         shell: bash -el {0}
         run: |
-          TICKER="${{ github.event.inputs.ticker || '601328' }}"
           SKIP_TUNE="${{ github.event.inputs.skip_tune != 'false' && '--skip-tune' || '' }}"
-          python daily_pipeline.py --ticker "$TICKER" $SKIP_TUNE 2>&1 | tee pipeline_output.txt
+          python daily_pipeline.py --ticker "${{ matrix.ticker }}" $SKIP_TUNE 2>&1 | tee pipeline_output.txt
 
       - name: Upload pipeline output
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: pipeline-output-${{ github.run_id }}
+          name: pipeline-output-${{ matrix.ticker }}-${{ github.run_id }}
           path: pipeline_output.txt
           retention-days: 30
