@@ -52,3 +52,52 @@ jobs:
           name: pipeline-output-${{ matrix.ticker }}-${{ github.run_id }}
           path: pipeline_output.txt
           retention-days: 30
+
+      - name: Send results to Slack
+        if: always()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          python3 - <<'EOF'
+          import json, os, re, urllib.request
+
+          webhook = os.environ.get("SLACK_WEBHOOK_URL", "")
+          if not webhook:
+              print("SLACK_WEBHOOK_URL not set, skipping")
+              exit(0)
+
+          ticker = "${{ matrix.ticker }}"
+          run_url = "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          try:
+              text = open("pipeline_output.txt").read()
+          except FileNotFoundError:
+              text = ""
+
+          def find(pattern, default="N/A"):
+              m = re.search(pattern, text)
+              return m.group(1).strip() if m else default
+
+          date    = find(r"(\d{4}-\d{2}-\d{2}), close=")
+          close   = find(r", close=([\d.]+)\)")
+          verdict = find(r"Majority vote \(>= 3/4\): (.+)")
+          pred_low  = find(r"Pred low\s+:\s+([\d.]+)")
+          pred_high = find(r"Pred high\s+:\s+([\d.]+)")
+          score     = find(r"Score / pred\s+:\s+([+-]?[\d.]+)")
+
+          emoji = {"BUY": ":green_circle:", "SELL": ":red_circle:"}.get(verdict, ":white_circle:")
+
+          msg = (
+              f"*{ticker}* — {date}  |  close: *{close}*\n"
+              f"{emoji} Signal: *{verdict}*\n"
+              f":chart_with_upwards_trend: Pred range: *{pred_low} – {pred_high}*\n"
+              f":bar_chart: Score/pred: *{score}*\n"
+              f"<{run_url}|View full output>"
+          )
+
+          payload = json.dumps({"text": msg}).encode()
+          req = urllib.request.Request(webhook, data=payload,
+                                       headers={"Content-Type": "application/json"})
+          urllib.request.urlopen(req)
+          print("Slack notification sent")
+          EOF
