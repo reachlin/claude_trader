@@ -1,0 +1,54 @@
+name: Daily Pipeline
+
+on:
+  schedule:
+    # 09:00 UTC = 17:00 CST, after Chinese A-share market closes (15:00 CST)
+    # Runs Mon–Fri only
+    - cron: "0 9 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      ticker:
+        description: "Stock ticker symbol"
+        required: false
+        default: "601328"
+      skip_tune:
+        description: "Skip hyperparameter tuning"
+        required: false
+        default: "true"
+        type: boolean
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Miniconda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          python-version: "3.10"
+          environment-file: environment.yml
+          activate-environment: gold-finger
+          auto-activate-base: false
+
+      - name: Install pip dependencies
+        shell: bash -el {0}
+        run: pip install -r requirements.txt
+
+      - name: Run daily pipeline
+        shell: bash -el {0}
+        run: |
+          TICKER="${{ github.event.inputs.ticker || '601328' }}"
+          SKIP_TUNE="${{ github.event.inputs.skip_tune != 'false' && '--skip-tune' || '' }}"
+          python daily_pipeline.py --ticker "$TICKER" $SKIP_TUNE 2>&1 | tee pipeline_output.txt
+
+      - name: Upload pipeline output
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pipeline-output-${{ github.run_id }}
+          path: pipeline_output.txt
+          retention-days: 30

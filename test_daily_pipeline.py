@@ -303,3 +303,108 @@ class TestPrintHelpers:
         assert "KM Orig" in captured.out
         assert "LGBM Tuned" in captured.out
         assert "PPO Orig" in captured.out
+
+
+# ---------------------------------------------------------------------------
+# Test run_price_prediction
+# ---------------------------------------------------------------------------
+class TestRunPricePrediction:
+    def test_returns_expected_keys(self, tmp_path):
+        from daily_pipeline import run_price_prediction
+
+        df = _make_ohlcv(300)
+        csv_path = tmp_path / "test.csv"
+        df.to_csv(csv_path, index=False)
+
+        ticker = {
+            "symbol": "000001",
+            "start": "20220101",
+            "csv": str(csv_path),
+            "capital": 100_000,
+            "label": "Test Stock",
+        }
+        result = run_price_prediction(ticker)
+        expected_keys = {
+            "pred_low", "pred_high", "last_date", "last_close",
+            "score_per_pred", "n_predictions", "plus_two", "plus_one",
+            "zero", "minus_one",
+        }
+        assert expected_keys.issubset(result.keys())
+
+    def test_pred_low_le_pred_high(self, tmp_path):
+        from daily_pipeline import run_price_prediction
+
+        df = _make_ohlcv(300)
+        csv_path = tmp_path / "test.csv"
+        df.to_csv(csv_path, index=False)
+
+        ticker = {
+            "symbol": "000001",
+            "start": "20220101",
+            "csv": str(csv_path),
+            "capital": 100_000,
+            "label": "Test Stock",
+        }
+        result = run_price_prediction(ticker)
+        assert result["pred_low"] <= result["pred_high"]
+
+    def test_score_counts_sum_to_n_predictions(self, tmp_path):
+        from daily_pipeline import run_price_prediction
+
+        df = _make_ohlcv(300)
+        csv_path = tmp_path / "test.csv"
+        df.to_csv(csv_path, index=False)
+
+        ticker = {
+            "symbol": "000001",
+            "start": "20220101",
+            "csv": str(csv_path),
+            "capital": 100_000,
+            "label": "Test Stock",
+        }
+        result = run_price_prediction(ticker)
+        total = result["plus_two"] + result["plus_one"] + result["zero"] + result["minus_one"]
+        assert total == result["n_predictions"]
+
+    def test_last_close_positive(self, tmp_path):
+        from daily_pipeline import run_price_prediction
+
+        df = _make_ohlcv(300)
+        csv_path = tmp_path / "test.csv"
+        df.to_csv(csv_path, index=False)
+
+        ticker = {
+            "symbol": "000001",
+            "start": "20220101",
+            "csv": str(csv_path),
+            "capital": 100_000,
+            "label": "Test Stock",
+        }
+        result = run_price_prediction(ticker)
+        assert result["last_close"] > 0
+
+
+# ---------------------------------------------------------------------------
+# Test print_price_prediction
+# ---------------------------------------------------------------------------
+class TestPrintPricePrediction:
+    def test_no_crash(self, capsys):
+        from daily_pipeline import print_price_prediction
+
+        result = {
+            "pred_low": 9.80,
+            "pred_high": 10.20,
+            "last_date": "2024-12-31",
+            "last_close": 10.00,
+            "score_per_pred": 1.5,
+            "n_predictions": 80,
+            "plus_two": 60,
+            "plus_one": 15,
+            "zero": 4,
+            "minus_one": 1,
+        }
+        print_price_prediction(result, "Test Stock")
+        captured = capsys.readouterr()
+        assert "Test Stock" in captured.out
+        assert "9.80" in captured.out or "9.8" in captured.out
+        assert "10.20" in captured.out or "10.2" in captured.out

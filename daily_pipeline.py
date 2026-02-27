@@ -32,6 +32,7 @@ from ppo_trading_bot import PPOTradingBot, run_ppo_backtest
 from td3_trading_bot import run_td3_backtest
 from tune_hyperparams import tune_kmeans, tune_lgbm, tune_lstm, tune_ppo
 from compare_models import run_majority_backtest
+from range_predictor import RangePredictor
 
 
 # ---------------------------------------------------------------------------
@@ -431,6 +432,83 @@ def print_consensus(result: dict, label: str):
 
 
 # ---------------------------------------------------------------------------
+# Price prediction (BiLSTM range predictor)
+# ---------------------------------------------------------------------------
+_RANGE_PREDICTOR_CONFIG = dict(
+    hidden=128, num_layers=4, fc_sizes=[256, 128, 64],
+    layer_norm=True, use_attention=True,
+    epochs=150, patience=20, batch_size=64,
+)
+
+
+def run_price_prediction(ticker: dict) -> dict:
+    """Train RangePredictor on all data and predict next-day (low, high).
+
+    Also runs a 70/30 walk-forward backtest to report prediction quality.
+    Returns a dict with prediction and scoring keys.
+    """
+    csv, label = ticker["csv"], ticker["label"]
+    df_raw = pd.read_csv(csv)
+    df = compute_indicators(df_raw).dropna(subset=FEATURE_COLS).reset_index(drop=True)
+
+    # --- Backtest: train on 70%, evaluate on 30% ---
+    split = int(len(df) * 0.7)
+    train_df = df.iloc[:split].copy().reset_index(drop=True)
+    test_df = df.iloc[split:].copy().reset_index(drop=True)
+
+    bt_predictor = RangePredictor(**_RANGE_PREDICTOR_CONFIG)
+    bt_predictor.fit(train_df)
+    scores = bt_predictor.evaluate_score(test_df)
+
+    # --- Full retrain on all data for next-day prediction ---
+    full_predictor = RangePredictor(**_RANGE_PREDICTOR_CONFIG)
+    full_predictor.fit(df)
+    pred_low, pred_high = full_predictor.predict_single(df)
+
+    last = df.iloc[-1]
+    n = scores["n_predictions"]
+    return {
+        "pred_low": pred_low,
+        "pred_high": pred_high,
+        "last_date": str(last["date"]),
+        "last_close": float(last["close"]),
+        "score_per_pred": scores["total_score"] / n if n > 0 else 0.0,
+        "n_predictions": n,
+        "plus_two": scores["plus_two"],
+        "plus_one": scores["plus_one"],
+        "zero": scores["zero"],
+        "minus_one": scores["minus_one"],
+    }
+
+
+def print_price_prediction(result: dict, label: str):
+    """Print next-day price range prediction and backtest quality."""
+    print(f"\n{'=' * 76}")
+    print(f"PRICE PREDICTION: {label}")
+    print("=" * 76)
+
+    close = result["last_close"]
+    low, high = result["pred_low"], result["pred_high"]
+    chg_low = (low - close) / close * 100
+    chg_high = (high - close) / close * 100
+    n = result["n_predictions"]
+
+    print(f"\n  Last date  : {result['last_date']}")
+    print(f"  Last close : {close:.4f}")
+    print(f"  Pred low   : {low:.4f}  ({chg_low:+.2f}%)")
+    print(f"  Pred high  : {high:.4f}  ({chg_high:+.2f}%)")
+    print(f"  Pred range : {high - low:.4f}")
+
+    if n > 0:
+        print(f"\n  Backtest quality ({n} predictions, 30% holdout):")
+        print(f"    +2 (both match)  : {result['plus_two']:4d}  ({result['plus_two']/n*100:.1f}%)")
+        print(f"    +1 (one match)   : {result['plus_one']:4d}  ({result['plus_one']/n*100:.1f}%)")
+        print(f"     0 (no match)    : {result['zero']:4d}  ({result['zero']/n*100:.1f}%)")
+        print(f"    -1 (wrong side)  : {result['minus_one']:4d}  ({result['minus_one']/n*100:.1f}%)")
+        print(f"    Score / pred     : {result['score_per_pred']:+.3f}")
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 def main():
@@ -568,6 +646,15 @@ def main():
         print(f"    PPO:      {ppo_sig:<14s} -> {ppo_dir}")
         print(f"    TD3:      {td3_sig:<14s} -> {td3_dir}")
         print(f"    Majority vote (>= 3/4): {verdict}")
+
+    # --- Step 6: Price range prediction ---
+    for ticker in tickers:
+        print(f"\nTraining price predictor for {ticker['label']}...")
+        try:
+            pred_result = run_price_prediction(ticker)
+            print_price_prediction(pred_result, ticker["label"])
+        except Exception as e:
+            print(f"  Price prediction failed for {ticker['label']}: {e}")
 
     elapsed = time.time() - t_start
     print(f"\n{'=' * 76}")
