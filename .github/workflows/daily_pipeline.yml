@@ -2,9 +2,10 @@ name: Daily Pipeline
 
 on:
   schedule:
-    # 09:00 UTC = 17:00 CST, after Chinese A-share market closes (15:00 CST)
+    # 10:30 UTC = 18:30 CST, well after Chinese A-share market closes (15:00 CST)
+    # Extra buffer ensures EOD data is published by data providers
     # Runs Mon–Fri only
-    - cron: "0 9 * * 1-5"
+    - cron: "30 10 * * 1-5"
   workflow_dispatch:
     inputs:
       skip_tune:

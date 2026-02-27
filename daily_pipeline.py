@@ -8,6 +8,8 @@ Usage:
 """
 
 import argparse
+import os
+import sys
 import time
 import warnings
 from datetime import datetime, timedelta
@@ -142,20 +144,50 @@ def _print_tuning_table(results: dict, title: str, best_params: dict):
 # ---------------------------------------------------------------------------
 # Download
 # ---------------------------------------------------------------------------
-def download_all(end_date: str):
-    """Download/update data for all tickers."""
+def _download_with_retry(ticker: dict, end_date: str, retries: int = 3, backoff: int = 15) -> bool:
+    """Download ticker data, retrying on transient errors.
+
+    Returns True if data is available (fresh download or existing CSV),
+    False if the download failed and no usable CSV exists.
+    """
+    symbol, start = ticker["symbol"], ticker["start"]
+    csv, label = ticker["csv"], ticker["label"]
+
+    os.makedirs(os.path.dirname(csv) if os.path.dirname(csv) else ".", exist_ok=True)
+
+    for attempt in range(1, retries + 1):
+        try:
+            df = fetch_stock_daily(symbol, start_date=start, end_date=end_date)
+            df.to_csv(csv, index=False)
+            print(f"  {label:<35s}  {len(df):>5d} rows  "
+                  f"({df['date'].iloc[0]} to {df['date'].iloc[-1]})")
+            return True
+        except Exception as e:
+            if attempt < retries:
+                wait = backoff * attempt
+                print(f"  {label:<35s}  attempt {attempt}/{retries} FAILED: {e}  "
+                      f"(retrying in {wait}s)")
+                time.sleep(wait)
+            else:
+                if os.path.exists(csv):
+                    print(f"  {label:<35s}  download FAILED after {retries} attempts: {e}")
+                    print(f"  {label:<35s}  WARNING: using existing (possibly stale) CSV")
+                    return True
+                print(f"  {label:<35s}  FAILED after {retries} attempts: {e}")
+                return False
+
+
+def download_all(end_date: str) -> set:
+    """Download/update data for all tickers. Returns set of failed symbols."""
     print("=" * 76)
     print(f"DOWNLOADING DATA (up to {end_date})")
     print("=" * 76)
 
+    failed = set()
     for t in TICKERS:
-        try:
-            df = fetch_stock_daily(t["symbol"], start_date=t["start"], end_date=end_date)
-            df.to_csv(t["csv"], index=False)
-            print(f"  {t['label']:<35s}  {len(df):>5d} rows  "
-                  f"({df['date'].iloc[0]} to {df['date'].iloc[-1]})")
-        except Exception as e:
-            print(f"  {t['label']:<35s}  FAILED: {e}")
+        if not _download_with_retry(t, end_date):
+            failed.add(t["symbol"])
+    return failed
 
 
 # ---------------------------------------------------------------------------
@@ -545,21 +577,19 @@ def main():
         tickers = TICKERS
 
     # --- Step 1: Download ---
-    if args.ticker:
-        # Download single ticker directly
-        print("=" * 76)
-        print(f"DOWNLOADING DATA (up to {end_date})")
-        print("=" * 76)
-        ticker = tickers[0]
-        try:
-            df = fetch_stock_daily(ticker["symbol"], start_date=ticker["start"], end_date=end_date)
-            df.to_csv(ticker["csv"], index=False)
-            print(f"  {ticker['label']:<35s}  {len(df):>5d} rows  "
-                  f"({df['date'].iloc[0]} to {df['date'].iloc[-1]})")
-        except Exception as e:
-            print(f"  {ticker['label']:<35s}  FAILED: {e}")
-    else:
-        download_all(end_date)
+    print("=" * 76)
+    print(f"DOWNLOADING DATA (up to {end_date})")
+    print("=" * 76)
+    failed_downloads = set()
+    for ticker in tickers:
+        if not _download_with_retry(ticker, end_date):
+            failed_downloads.add(ticker["symbol"])
+
+    # Skip tickers whose data could not be downloaded
+    tickers = [t for t in tickers if t["symbol"] not in failed_downloads]
+    if not tickers:
+        print("\nNo tickers available after download failures. Exiting.")
+        sys.exit(1)
 
     # --- Step 2: Train all models on each ticker ---
     all_results = {}
@@ -660,6 +690,11 @@ def main():
     print(f"\n{'=' * 76}")
     print(f"Total time: {elapsed:.1f}s ({elapsed/60:.1f} min)")
     print("=" * 76)
+
+    if failed_downloads:
+        print(f"\nWARNING: {len(failed_downloads)} ticker(s) failed to download: "
+              f"{', '.join(sorted(failed_downloads))}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
