@@ -513,6 +513,170 @@ def run_price_prediction(ticker: dict) -> dict:
     }
 
 
+# ---------------------------------------------------------------------------
+# Stock report (--report mode)
+# ---------------------------------------------------------------------------
+def discover_stock_csvs(data_dir: str = "data") -> list:
+    """Return sorted list of *_20yr.csv paths inside data_dir."""
+    if not os.path.isdir(data_dir):
+        return []
+    return sorted(
+        os.path.join(data_dir, f)
+        for f in os.listdir(data_dir)
+        if f.endswith("_20yr.csv")
+    )
+
+
+def compute_composite_score(summary: dict) -> float:
+    """Score a stock from its averaged backtest metrics.
+
+    Weights: Sharpe 40%, return 40%, drawdown 20%.
+    """
+    return (
+        0.40 * summary["avg_sharpe"]
+        + 0.40 * (summary["avg_return"] / 100.0)
+        - 0.20 * (abs(summary["avg_max_drawdown"]) / 100.0)
+    )
+
+
+def rank_stocks(records: list) -> list:
+    """Add composite_score and rank to each record; return sorted list."""
+    for r in records:
+        r["composite_score"] = compute_composite_score(r)
+    ranked = sorted(records, key=lambda r: r["composite_score"], reverse=True)
+    for i, r in enumerate(ranked, 1):
+        r["rank"] = i
+    return ranked
+
+
+def format_report(ranked: list, top_n: int = 3) -> str:
+    """Render a markdown report from ranked stock records."""
+    from datetime import date
+    lines = []
+    today = date.today().isoformat()
+    lines.append(f"# Stock Performance Report")
+    lines.append(f"\nGenerated: {today}  |  Models: K-Means, LSTM, LightGBM, PPO, TD3  |  Backtest split: 60/40\n")
+
+    top = ranked[:top_n]
+
+    # --- Top N summary table ---
+    lines.append(f"## Top {top_n} Stocks\n")
+    lines.append(f"| Rank | Symbol | Avg Sharpe | Avg Return | Avg Drawdown | Avg Win Rate | Score |")
+    lines.append(f"|------|--------|:----------:|:----------:|:------------:|:------------:|:-----:|")
+    for r in top:
+        lines.append(
+            f"| {r['rank']} | **{r['symbol']}** "
+            f"| {r['avg_sharpe']:.3f} "
+            f"| {r['avg_return']:+.2f}% "
+            f"| {r['avg_max_drawdown']:.2f}% "
+            f"| {r['avg_win_rate']:.1f}% "
+            f"| {r['composite_score']:.4f} |"
+        )
+
+    # --- Per-model detail for top N ---
+    lines.append(f"\n## Top {top_n} — Per-Model Detail\n")
+    for r in top:
+        lines.append(f"### {r['rank']}. {r['symbol']}\n")
+        lines.append(f"| Model    | Return | Sharpe |")
+        lines.append(f"|----------|:------:|:------:|")
+        for m, label in [("km", "K-Means"), ("lstm", "LSTM"),
+                         ("lgbm", "LightGBM"), ("ppo", "PPO"), ("td3", "TD3")]:
+            lines.append(
+                f"| {label:<8s} | {r[f'{m}_return']:+.2f}% | {r[f'{m}_sharpe']:.3f} |"
+            )
+        lines.append(f"| Buy&Hold | {r['bh_return']:+.2f}% | — |")
+        lines.append("")
+
+    # --- Full rankings table ---
+    lines.append("## Full Rankings\n")
+    lines.append("| Rank | Symbol | Avg Sharpe | Avg Return | Avg Drawdown | Avg Win Rate | Score |")
+    lines.append("|------|--------|:----------:|:----------:|:------------:|:------------:|:-----:|")
+    for r in ranked:
+        medal = {1: " 🥇", 2: " 🥈", 3: " 🥉"}.get(r["rank"], "")
+        lines.append(
+            f"| {r['rank']} | {r['symbol']}{medal} "
+            f"| {r['avg_sharpe']:.3f} "
+            f"| {r['avg_return']:+.2f}% "
+            f"| {r['avg_max_drawdown']:.2f}% "
+            f"| {r['avg_win_rate']:.1f}% "
+            f"| {r['composite_score']:.4f} |"
+        )
+
+    return "\n".join(lines) + "\n"
+
+
+def run_report(data_dir: str = "data", top_n: int = 3):
+    """Scan data_dir, backtest every *_20yr.csv, rank and write stock_report.md."""
+    csv_paths = discover_stock_csvs(data_dir)
+    if not csv_paths:
+        print(f"No *_20yr.csv files found in '{data_dir}'. Exiting.")
+        return
+
+    print(f"Found {len(csv_paths)} stocks. Running backtests (no tuning)...\n")
+
+    records = []
+    for csv_path in csv_paths:
+        basename = os.path.basename(csv_path)
+        symbol = basename.replace("_20yr.csv", "")
+        ticker = {
+            "symbol": symbol,
+            "start": "20040101",
+            "csv": csv_path,
+            "capital": 100_000,
+            "label": symbol,
+        }
+        print(f"  [{csv_paths.index(csv_path)+1}/{len(csv_paths)}] {symbol} ...", end=" ", flush=True)
+        try:
+            res = train_all(ticker)
+        except Exception as e:
+            print(f"SKIPPED ({e})")
+            continue
+
+        models = ["km", "lstm", "lgbm", "ppo", "td3"]
+        avg_sharpe  = sum(res[m]["sharpe_ratio"]  for m in models) / len(models)
+        avg_return  = sum(res[m]["total_return"]   for m in models) / len(models)
+        avg_drawdown = sum(res[m]["max_drawdown"]  for m in models) / len(models)
+        avg_win_rate = sum(res[m]["win_rate"]      for m in models) / len(models)
+
+        record = {
+            "symbol": symbol, "label": symbol,
+            "avg_sharpe": avg_sharpe,
+            "avg_return": avg_return,
+            "avg_max_drawdown": avg_drawdown,
+            "avg_win_rate": avg_win_rate,
+            "bh_return": res["km"]["buy_and_hold_return"],
+        }
+        for m in models:
+            record[f"{m}_return"] = res[m]["total_return"]
+            record[f"{m}_sharpe"] = res[m]["sharpe_ratio"]
+
+        records.append(record)
+        print(f"sharpe={avg_sharpe:.3f}  return={avg_return:+.2f}%")
+
+    if not records:
+        print("No stocks backtested successfully.")
+        return
+
+    ranked = rank_stocks(records)
+    md = format_report(ranked, top_n=top_n)
+
+    out_path = os.path.join(data_dir, "stock_report.md")
+    with open(out_path, "w") as f:
+        f.write(md)
+
+    print(f"\nReport saved to {out_path}")
+    print(f"\n{'=' * 76}")
+    print(f"TOP {top_n} STOCKS")
+    print("=" * 76)
+    for r in ranked[:top_n]:
+        print(f"  #{r['rank']}  {r['symbol']:<12s}  "
+              f"sharpe={r['avg_sharpe']:.3f}  "
+              f"return={r['avg_return']:+.2f}%  "
+              f"drawdown={r['avg_max_drawdown']:.2f}%  "
+              f"score={r['composite_score']:.4f}")
+
+
+
 def print_price_prediction(result: dict, label: str):
     """Print next-day price range prediction and backtest quality."""
     print(f"\n{'=' * 76}")
@@ -555,14 +719,25 @@ def main():
         "--capital", type=int, default=100_000,
         help="Initial capital when using --ticker (default: 100000)",
     )
+    parser.add_argument(
+        "--report", action="store_true",
+        help="Backtest every *_20yr.csv in --data-dir, rank stocks, and write stock_report.md.",
+    )
+    parser.add_argument(
+        "--data-dir", default="data", metavar="DIR",
+        help="Data directory for --report mode (default: data)",
+    )
     args = parser.parse_args()
+
+    if args.report:
+        run_report(data_dir=args.data_dir)
+        return
 
     t_start = time.time()
     end_date = _last_trading_day()
 
     # Build the ticker list: custom symbol or hardcoded defaults
     if args.ticker:
-        import os
         sym = args.ticker
         csv_path = os.path.join("data", f"{sym}_20yr.csv")
         os.makedirs("data", exist_ok=True)
